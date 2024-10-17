@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import AVKit
 import AVFoundation
 import CoreMotion
 
@@ -27,6 +28,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var suctionDuration: TimeInterval = 10.0
     let motionManager = CMMotionManager()
     
+    var player: AVPlayer!
+    var playerViewController: AVPlayerViewController!
+    
     var ghostImageView: UIImageView!
     var dummyImageView: UIImageView!
     var currentQRCodeImageView: UIImageView!
@@ -46,7 +50,18 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupImageViews()
         setupTouchGesture()
         startGameTimer()
+        setupPlayer()
         view.backgroundColor = .black
+    }
+    
+    func setupPlayer() {
+        // 動画URLを設定し、AVPlayerを初期化
+        let videoURL = URL(string: "vacuum")!
+        player = AVPlayer(url: videoURL)
+        // AVPlayerLayerを設定
+        let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.frame = self.view.bounds
+        self.view.layer.addSublayer(playerLayer)
     }
     
     func setupCamera() {
@@ -103,52 +118,44 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func setupImageViews() {
-         // Ghost ImageView の設定
-         ghostImageView = UIImageView(image: UIImage(named: "ghost"))
-         ghostImageView.contentMode = .scaleAspectFit
-         ghostImageView.frame = CGRect(x: (view.bounds.width - 300) / 2,
-                                       y: (view.bounds.height - 300) / 2,
-                                       width: 300,
-                                       height: 300)
-         ghostImageView.isHidden = true
-         view.addSubview(ghostImageView)
-         
-         // Dummy ImageView の設定
-         dummyImageView = UIImageView(image: UIImage(named: "dummy"))
-         dummyImageView.contentMode = .scaleAspectFit
-         dummyImageView.frame = CGRect(x: (view.bounds.width - 300) / 2,
-                                       y: (view.bounds.height - 300) / 2,
-                                       width: 300,
-                                       height: 300)
-         dummyImageView.isHidden = true
-         view.addSubview(dummyImageView)
-         
-         // 現在のQRコードの画像ビュー（ghostかdummyが表示される）
-         currentQRCodeImageView = UIImageView()
-         currentQRCodeImageView.contentMode = .scaleAspectFit
-         currentQRCodeImageView.frame = CGRect(x: (view.bounds.width - 300) / 2,
-                                               y: (view.bounds.height - 300) / 2,
-                                               width: 300,
-                                               height: 300)
-         currentQRCodeImageView.isHidden = true
-         view.addSubview(currentQRCodeImageView)
-     }
+        // Ghost ImageView の設定
+        ghostImageView = UIImageView(image: UIImage(named: "ghost"))
+        ghostImageView.contentMode = .scaleAspectFill
+        ghostImageView.frame = view.bounds
+        ghostImageView.isHidden = true
+        view.addSubview(ghostImageView)
+        
+        // Dummy ImageView の設定
+        dummyImageView = UIImageView(image: UIImage(named: "dummy"))
+        dummyImageView.contentMode = .scaleAspectFill
+        dummyImageView.frame = view.bounds
+        dummyImageView.isHidden = true
+        view.addSubview(dummyImageView)
+        
+        // 現在のQRコードの画像ビュー（ghostかdummyが表示される）
+        currentQRCodeImageView = UIImageView()
+        currentQRCodeImageView.contentMode = .scaleAspectFill
+        currentQRCodeImageView.frame = view.bounds
+        currentQRCodeImageView.isHidden = true
+        view.addSubview(currentQRCodeImageView)
+    }
     
     func setupTouchGesture() {
-            let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap))
-            view.addGestureRecognizer(tapGesture)
-        }
-        
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap))
+        view.addGestureRecognizer(tapGesture)
+    }
+    
     @objc func handleScreenTap() {
         if isSuctionMode || detectedQRCodeType == nil { return }//吸い取りモード中やQRコードがない場合は無視
         if detectedQRCodeType == "ghost" {
             print("画面がタッチされ、吸い込みモードに移行します")
             startSuctionMode() // 吸い取りモードに移行
-        } else {
-            print("画面がタッチされましたが、dummyです")
+        } else if detectedQRCodeType == "dummy"{
+            print("画面がタッチされましたが、dummyです。操作不能にします。")
+            startDummyMode()
         }
     }
-            
+    
     func startGameTimer() {
         gameTimer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateGameTimer), userInfo: nil, repeats: true)
     }
@@ -202,7 +209,6 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 detectedQRCodeType = "dummy"
                 print("QRコードがdummyです")
                 showQRCodeImage(image: dummyImageView.image!)
-                startDummyMode() // dummyの場合は自動的に操作不能モード
             }
         }
         
@@ -229,64 +235,106 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         currentQRCodeImageView.image = image
         currentQRCodeImageView.isHidden = false
     }
-        
+    
     func hideQRCodeImage(){
         currentQRCodeImageView.isHidden = true
         currentQRCodeImageView.image = nil
     }
     
-    // 吸い取りモードを開始する
     func startSuctionMode() {
         isSuctionMode = true
-        ghostImageView.isHidden = false
         hideQRCodeImage()
-        // QRコードの画像を非表示にする
-        print("吸い込みモードに入りました")
         
-        // 画面の色を白にして吸い込みモードを示す
-        view.backgroundColor = .white
+        // プレースホルダー画像を表示
+        let placeholderImageView = UIImageView(image: UIImage(named: "placeholder"))
+        placeholderImageView.frame = self.view.bounds
+        placeholderImageView.contentMode = .scaleAspectFill
+        view.addSubview(placeholderImageView)
         
-        // QRコードの読み取りを一時停止
-        stopQRCodeScanning()
+        // 動画の準備を開始
+        if let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") {
+            player = AVPlayer(url: videoURL)
+            playerViewController = AVPlayerViewController()
+            playerViewController.player = player
+            playerViewController.videoGravity = .resizeAspectFill
+            
+            // 動画を画面いっぱいに表示
+            playerViewController.view.frame = self.view.bounds
+            self.view.addSubview(playerViewController.view)
+            
+            // 動画の準備が完了しているか確認
+            player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
+            
+            // 動画再生終了時に吸い込みモードを終了
+            if let currentItem = player.currentItem {
+                NotificationCenter.default.addObserver(self, selector: #selector(endSuctionMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+            }
+        }
         
-        // モーションデータを開始して、スマホを振ることで吸い込み速度を調整
+        // プレースホルダーの削除を行う
+        DispatchQueue.main.async {
+            placeholderImageView.removeFromSuperview()
+        }
+        
+        // 加速度センサーを使ってデバイスの揺れを検知
         motionManager.startAccelerometerUpdates(to: OperationQueue.current!) { [weak self] (data, error) in
             guard let data = data, error == nil else { return }
             let acceleration = sqrt(pow(data.acceleration.x, 2) + pow(data.acceleration.y, 2) + pow(data.acceleration.z, 2))
-                   
-            if acceleration > 1.5 { // 振りのしきい値を設定（この値は調整可能）
-                print("スマホを振りました！吸い込み速度が上がります")
-                self?.suctionDuration -= 1.0 // 吸い込み時間を短縮
+            
+            if acceleration > 1.3 { // デバイスが揺れたとき
+                print("デバイスが揺れました！動画の再生速度を倍速します。")
+                self?.increasePlaybackSpeed()
             }
         }
-        
-        // 吸い込みが完了した後、QRコードの読み取りを再開
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.endSuctionMode()
+    }
+
+    
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        if keyPath == "status" {
+            if let player = player, player.status == .readyToPlay {
+                // 動画の準備が完了したので再生
+                player.play()
+            } else if let player = player, player.status == .failed {
+                print("動画の準備に失敗しました: \(player.error?.localizedDescription ?? "不明なエラー")")
+            }
         }
     }
     
-    func endSuctionMode() {
+    // 動画の再生速度を変更する
+    func increasePlaybackSpeed() {
+        guard let player = player else { return }
+
+        // 現在の速度から1.5倍にゆっくり変更
+        let currentRate = player.rate
+        let newRate: Float = currentRate + 0.5 // 0.5ずつ増やす
+
+        UIView.animate(withDuration: 0.5) { // アニメーションで速度変更
+                player.rate = newRate
+        }
+    }
+    
+    
+    
+    @objc func endSuctionMode() {
         isSuctionMode = false
-        ghostImageView.isHidden = true
         print("吸い込みモードが終了しました")
-        // 吸い込みモードが終了したら背景色を黒に戻す
-        view.backgroundColor = .black
-                
+        // 動画停止
+        player.pause()
+        
+        // 動画表示の削除
+        playerViewController.view.removeFromSuperview()
+        
         // モーションデータの取得を停止
         motionManager.stopAccelerometerUpdates()
-            
-        // QRコードリーダーを再開
-        captureSession.startRunning()
         
-        // QRコード配列を更新し、読み取ったQRコードがdummyに変わる処理
-        if let detectedQRCodeType = detectedQRCodeType, let qrCodeNumber = Int(detectedQRCodeType) {
-            if detectedQRCodeType == "ghost" {
-                gameArray[qrCodeNumber] = "dummy" // 吸い込んだQRコードをdummyに変更
-                print("QRコード \(qrCodeNumber) が dummy に変わりました")
-            }
+        // QRコードリーダーを再開
+        startQRCodeScanning()
+        
+        // QRコード配列を更新し、読み取ったQRコードがdummyに変わる
+        if let detectedQRCodeType = detectedQRCodeType, detectedQRCodeType == "ghost", let qrCodeNumber = gameArray.firstIndex(of: "ghost") {
+            gameArray[qrCodeNumber] = "dummy" // 吸い込んだQRコードをdummyに変更
+            print("QRコード \(qrCodeNumber) が dummy に変わりました")
         }
-        // 再度QRコードの読み取り待機状態に戻す
         detectedQRCodeType = nil
     }
     
