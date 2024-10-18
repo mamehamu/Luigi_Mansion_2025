@@ -22,7 +22,8 @@
 		B36D78952CBD41EF004377B0 /* TutorialViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B36D78942CBD41EF004377B0 /* TutorialViewController.swift */; };
 		B371A0C42CBD47DC00577943 /* GameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B371A0C32CBD47DC00577943 /* GameViewController.swift */; };
 		B371A0C62CBD481800577943 /* ResultViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B371A0C52CBD481800577943 /* ResultViewController.swift */; };
-		B38592A22CC117890096D632 /* vacuum.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = B38592A12CC117890096D632 /* vacuum.mp4 */; };
+		B38592A42CC155880096D632 /* vacuum_dummy.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = B38592A32CC155880096D632 /* vacuum_dummy.mp4 */; };
+		B38592A62CC155A50096D632 /* vacuum.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = B38592A52CC155A50096D632 /* vacuum.mp4 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,8 +63,8 @@
 		B36D78942CBD41EF004377B0 /* TutorialViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TutorialViewController.swift; sourceTree = "<group>"; };
 		B371A0C32CBD47DC00577943 /* GameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewController.swift; sourceTree = "<group>"; };
 		B371A0C52CBD481800577943 /* ResultViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultViewController.swift; sourceTree = "<group>"; };
-		B38592A02CC1177A0096D632 /* vacuum_dummy.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; name = vacuum_dummy.mp4; path = "../../../../Downloads/類似マンション/vacuum_dummy.mp4"; sourceTree = "<group>"; };
-		B38592A12CC117890096D632 /* vacuum.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; name = vacuum.mp4; path = "../../../../Downloads/類似マンション/vacuum.mp4"; sourceTree = "<group>"; };
+		B38592A32CC155880096D632 /* vacuum_dummy.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = vacuum_dummy.mp4; sourceTree = "<group>"; };
+		B38592A52CC155A50096D632 /* vacuum.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = vacuum.mp4; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,8 +153,8 @@
 		B385929F2CC117390096D632 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				B38592A02CC1177A0096D632 /* vacuum_dummy.mp4 */,
-				B38592A12CC117890096D632 /* vacuum.mp4 */,
+				B38592A32CC155880096D632 /* vacuum_dummy.mp4 */,
+				B38592A52CC155A50096D632 /* vacuum.mp4 */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -264,10 +265,11 @@
 			files = (
 				B306B6712CBD297E00CE8190 /* Main.storyboard in Resources */,
 				B306B6682CBD297E00CE8190 /* GameScene.sks in Resources */,
-				B38592A22CC117890096D632 /* vacuum.mp4 in Resources */,
+				B38592A62CC155A50096D632 /* vacuum.mp4 in Resources */,
 				B306B6732CBD298000CE8190 /* Assets.xcassets in Resources */,
 				B306B6762CBD298000CE8190 /* LaunchScreen.storyboard in Resources */,
 				B306B66A2CBD297E00CE8190 /* Actions.sks in Resources */,
+				B38592A42CC155880096D632 /* vacuum_dummy.mp4 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

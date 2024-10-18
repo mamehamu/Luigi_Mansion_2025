@@ -27,8 +27,12 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var gameTimer: Timer?
     var suctionDuration: TimeInterval = 10.0
     let motionManager = CMMotionManager()
+    var qrCodeNumber: Int?
     
     var player: AVPlayer!
+    var videoPlayer1: AVPlayer?
+    var videoPlayer2: AVPlayer?
+    var playerLayer: AVPlayerLayer?
     var playerViewController: AVPlayerViewController!
     
     var ghostImageView: UIImageView!
@@ -51,7 +55,19 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupTouchGesture()
         startGameTimer()
         setupPlayer()
+        prepareVideos()
         view.backgroundColor = .black
+    }
+    
+    func prepareVideos(){
+        guard let videoURL1 = Bundle.main.url(forResource: "vacuum", withExtension: "mp4"),
+              let videoURL2 = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") else { return }
+                
+        let playerItem1 = AVPlayerItem(url: videoURL1)
+        let playerItem2 = AVPlayerItem(url: videoURL2)
+            
+        videoPlayer1 = AVPlayer(playerItem: playerItem1)
+        videoPlayer2 = AVPlayer(playerItem: playerItem2)
     }
     
     func setupPlayer() {
@@ -147,10 +163,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     @objc func handleScreenTap() {
         if isSuctionMode || detectedQRCodeType == nil { return }//吸い取りモード中やQRコードがない場合は無視
-        if detectedQRCodeType == "ghost" {
+        if let qrCodeNumber = self.qrCodeNumber, detectedQRCodeType == "ghost" {
             print("画面がタッチされ、吸い込みモードに移行します")
-            startSuctionMode() // 吸い取りモードに移行
-        } else if detectedQRCodeType == "dummy"{
+            startSuctionMode()
+            gameArray[qrCodeNumber] = "dummy" // 吸い込み後にdummyに置換
+        } else if detectedQRCodeType == "dummy" {
             print("画面がタッチされましたが、dummyです。操作不能にします。")
             startDummyMode()
         }
@@ -190,6 +207,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func handleQRCodeDetected(qrCodeNumber: Int) {
+        self.qrCodeNumber = qrCodeNumber
         // QRコードが検出された時の処理
         if !isQRCodeVisible {
             isQRCodeVisible = true
@@ -249,7 +267,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         let placeholderImageView = UIImageView(image: UIImage(named: "placeholder"))
         placeholderImageView.frame = self.view.bounds
         placeholderImageView.contentMode = .scaleAspectFill
-        view.addSubview(placeholderImageView)
+        self.view.addSubview(placeholderImageView)
         
         // 動画の準備を開始
         if let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") {
@@ -261,6 +279,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             // 動画を画面いっぱいに表示
             playerViewController.view.frame = self.view.bounds
             self.view.addSubview(playerViewController.view)
+            
+            // タッチをブロックする透明なビューを追加
+            let touchBlockerView = UIView(frame: self.view.bounds)
+            touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
+            self.view.addSubview(touchBlockerView)
             
             // 動画の準備が完了しているか確認
             player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
@@ -306,19 +329,20 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
         // 現在の速度から1.5倍にゆっくり変更
         let currentRate = player.rate
-        let newRate: Float = currentRate + 0.5 // 0.5ずつ増やす
-
-        UIView.animate(withDuration: 0.5) { // アニメーションで速度変更
-                player.rate = newRate
+        if currentRate < 2.0{
+            player.rate = currentRate + 0.5
         }
     }
     
     
     
-    @objc func endSuctionMode() {
+    @objc func endSuctionMode(qrCodeNumber : Int) {
         isSuctionMode = false
         print("吸い込みモードが終了しました")
-        // 動画停止
+        
+        // 残りの処理（例: おばけを退治したことを記録）
+        exterminatedCount += 1
+        
         player.pause()
         
         // 動画表示の削除
@@ -327,40 +351,98 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // モーションデータの取得を停止
         motionManager.stopAccelerometerUpdates()
         
-        // QRコードリーダーを再開
-        startQRCodeScanning()
-        
-        // QRコード配列を更新し、読み取ったQRコードがdummyに変わる
-        if let detectedQRCodeType = detectedQRCodeType, detectedQRCodeType == "ghost", let qrCodeNumber = gameArray.firstIndex(of: "ghost") {
-            gameArray[qrCodeNumber] = "dummy" // 吸い込んだQRコードをdummyに変更
-            print("QRコード \(qrCodeNumber) が dummy に変わりました")
+ 
+        // QRコード番号が設定されているか確認し、gameArrayを更新
+        if let qrCodeNumber = self.qrCodeNumber, qrCodeNumber >= 0 && qrCodeNumber < gameArray.count {
+            if gameArray[qrCodeNumber] == "ghost" {
+                gameArray[qrCodeNumber] = "dummy"
+                print("QRコード \(qrCodeNumber) は dummy に変換されました")
+            } else {
+                print("QRコード \(qrCodeNumber) は既に dummy です")
+            }
+        } else {
+            print("QRコード番号が無効です")
         }
+        
         detectedQRCodeType = nil
+        isQRCodeVisible = false
     }
     
-    // ダミーモードを開始する
+    func updateGameAfterSuction() {
+           // 吸い取りモード後の処理をここに実装
+           // たとえば、残り時間の延長や得点の加算など
+           // 例:
+           exterminatedCount += 1 // おばけを退治した数をカウント
+           if exterminatedCount >= maxExterminationCount {
+               endGame() // ゲーム終了処理
+           } else {
+               // 再度QRコードのスキャンを可能にする
+               isQRCodeVisible = false
+               detectedQRCodeType = nil
+               initializeGameArray() // ゲーム配列を再初期化
+           }
+       }
+    
+    func endGame() {
+        // ゲーム終了の処理
+        gameTimer?.invalidate() // タイマーを停止
+        print("ゲームが終了しました！")
+        // 結果の表示やランキング処理を追加
+    }
     func startDummyMode() {
         isDummyMode = true
-        hideQRCodeImage() // QRコードの画像を非表示にする
-        
-        print("Dummy QRコードが読み取られました。操作を3秒間停止します")
-        
-        // QRコードの読み取りを一時停止
-        stopQRCodeScanning()
-        
-        // 3秒間の待機後に、通常モードに戻る
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.endDummyMode()
+        hideQRCodeImage()
+
+        // vacuum_dummyの動画を準備
+        if let videoURL = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") {
+            videoPlayer2 = AVPlayer(url: videoURL)
+            playerViewController = AVPlayerViewController()
+            playerViewController?.player = videoPlayer2
+            playerViewController?.videoGravity = .resizeAspectFill
+
+            // 動画を画面いっぱいに表示
+            if let playerView = playerViewController?.view {
+                playerView.frame = self.view.bounds
+                playerView.autoresizingMask = [.flexibleWidth, .flexibleHeight] // 自
+                self.view.addSubview(playerView) // プレゼンテーションの完了後に再生
+                
+                // タッチをブロックする透明なビューを追加
+                let touchBlockerView = UIView(frame: self.view.bounds)
+                touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
+                self.view.addSubview(touchBlockerView)
+                
+            }
+            // 動画の準備が完了しているか確認
+            videoPlayer2?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
+
+            // 動画再生終了時にダミーモードを終了
+            if let currentItem = videoPlayer2?.currentItem {
+                NotificationCenter.default.addObserver(self, selector: #selector(endDummyMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+            }
+            
+            // 動画再生を開始
+            videoPlayer2?.play()
+        } else {
+            print("動画ファイルが見つかりません。")
         }
+        // 加速度センサーを停止
+        motionManager.stopAccelerometerUpdates()
     }
-    
-    func endDummyMode() {
+
+    // ダミーモードの終了処理
+    @objc func endDummyMode() {
         isDummyMode = false
-        print("Dummyモードが終了しました")
+        // 動画ビューを削除する
+        videoPlayer2?.pause()
+        videoPlayer2?.replaceCurrentItem(with: nil)
+        videoPlayer2?.currentItem?.removeObserver(self, forKeyPath: "status")
         
-        // QRコードの読み取りを再開
-        startQRCodeScanning()
-        detectedQRCodeType = nil
+        // プレイヤービューを削除
+        playerViewController?.view.removeFromSuperview() // ここでプレイヤービューを削除
+        playerViewController = nil // メモリを解放
+
+        // 必要であれば、次の処理を追加
+        print("ダミーモードが終了しました")
     }
     
     // QRコードの読み取りを一時停止する
