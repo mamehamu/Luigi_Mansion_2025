@@ -39,6 +39,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var dummyImageView: UIImageView!
     var currentQRCodeImageView: UIImageView!
     
+    var lastShakeTime: TimeInterval = 0
+    let sharkThreshold: Double = 1.3 //加速度のしきい値
+    let cooldownPeriod: TimeInterval = 0.5 //次の振動を感知するまでのクールダウン
+    
+    
     var gameArray: [String] = ["ghost", "ghost", "ghost", "ghost", "ghost", "dummy", "dummy"]
     
     func initializeGameArray() {
@@ -65,6 +70,10 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 
         let playerItem1 = AVPlayerItem(url: videoURL1)
         let playerItem2 = AVPlayerItem(url: videoURL2)
+        
+        // バッファ設定
+        playerItem1.preferredForwardBufferDuration = 1.0 // 1秒分のバッファを確保
+        playerItem2.preferredForwardBufferDuration = 1.0 // 1秒分のバッファを確保
             
         videoPlayer1 = AVPlayer(playerItem: playerItem1)
         videoPlayer2 = AVPlayer(playerItem: playerItem2)
@@ -162,7 +171,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     @objc func handleScreenTap() {
-        if isSuctionMode || detectedQRCodeType == nil { return }//吸い取りモード中やQRコードがない場合は無視
+        if isSuctionMode || isDummyMode || (player.rate > 0.0 || (videoPlayer2?.rate ?? 0.0) > 0.0) {
+            return
+        }//吸い取りモード中やQRコードがない場合は無視
         if let qrCodeNumber = self.qrCodeNumber, detectedQRCodeType == "ghost" {
             print("画面がタッチされ、吸い込みモードに移行します")
             startSuctionMode()
@@ -329,8 +340,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
         // 現在の速度から1.5倍にゆっくり変更
         let currentRate = player.rate
-        if currentRate < 2.0{
-            player.rate = currentRate + 0.5
+        if currentRate < 3.0{
+            player.rate = min(currentRate + 0.5, 3.0)
         }
     }
     
