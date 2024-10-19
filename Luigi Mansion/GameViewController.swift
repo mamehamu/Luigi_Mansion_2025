@@ -40,7 +40,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var currentQRCodeImageView: UIImageView!
     
     var lastShakeTime: TimeInterval = 0
-    let sharkThreshold: Double = 1.3 //加速度のしきい値
+    let shakeThreshold: Double = 1.3 //加速度のしきい値
     let cooldownPeriod: TimeInterval = 0.5 //次の振動を感知するまでのクールダウン
     
     
@@ -67,14 +67,14 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     func prepareVideos(){
         guard let videoURL1 = Bundle.main.url(forResource: "vacuum", withExtension: "mp4"),
               let videoURL2 = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") else { return }
-                
+        
         let playerItem1 = AVPlayerItem(url: videoURL1)
         let playerItem2 = AVPlayerItem(url: videoURL2)
         
         // バッファ設定
         playerItem1.preferredForwardBufferDuration = 1.0 // 1秒分のバッファを確保
         playerItem2.preferredForwardBufferDuration = 1.0 // 1秒分のバッファを確保
-            
+        
         videoPlayer1 = AVPlayer(playerItem: playerItem1)
         videoPlayer2 = AVPlayer(playerItem: playerItem2)
     }
@@ -303,6 +303,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             if let currentItem = player.currentItem {
                 NotificationCenter.default.addObserver(self, selector: #selector(endSuctionMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
             }
+        } else {
+            print("vacuum.mp4 の動画ファイルが見つかりませんでした。")
         }
         
         // プレースホルダーの削除を行う
@@ -312,17 +314,17 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         // 加速度センサーを使ってデバイスの揺れを検知
         motionManager.startAccelerometerUpdates(to: OperationQueue.current!) { [weak self] (data, error) in
-            guard let data = data, error == nil else { return }
+            guard let self = self, let data = data, error == nil else { return }
             let acceleration = sqrt(pow(data.acceleration.x, 2) + pow(data.acceleration.y, 2) + pow(data.acceleration.z, 2))
             
-            if acceleration > 1.3 { // デバイスが揺れたとき
+            let currentTime = Date().timeIntervalSince1970
+            if acceleration > self.shakeThreshold && (currentTime - self.lastShakeTime) > self.cooldownPeriod {
                 print("デバイスが揺れました！動画の再生速度を倍速します。")
-                self?.increasePlaybackSpeed()
+                self.increasePlaybackSpeed()
+                self.lastShakeTime = currentTime // 最後の揺れ時間を更新
             }
         }
     }
-
-    
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
         if keyPath == "status" {
             if let player = player, player.status == .readyToPlay {
@@ -337,7 +339,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     // 動画の再生速度を変更する
     func increasePlaybackSpeed() {
         guard let player = player else { return }
-
+        
         // 現在の速度から1.5倍にゆっくり変更
         let currentRate = player.rate
         if currentRate < 3.0{
@@ -362,7 +364,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // モーションデータの取得を停止
         motionManager.stopAccelerometerUpdates()
         
- 
+        
         // QRコード番号が設定されているか確認し、gameArrayを更新
         if let qrCodeNumber = self.qrCodeNumber, qrCodeNumber >= 0 && qrCodeNumber < gameArray.count {
             if gameArray[qrCodeNumber] == "ghost" {
@@ -380,52 +382,52 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func updateGameAfterSuction() {
-           // 吸い取りモード後の処理をここに実装
-           // たとえば、残り時間の延長や得点の加算など
-           // 例:
-           exterminatedCount += 1 // おばけを退治した数をカウント
-           if exterminatedCount >= maxExterminationCount {
-               endGame() // ゲーム終了処理
-           } else {
-               // 再度QRコードのスキャンを可能にする
-               isQRCodeVisible = false
-               detectedQRCodeType = nil
-               initializeGameArray() // ゲーム配列を再初期化
-           }
-       }
+        // 吸い取りモード後の処理をここに実装
+        // たとえば、残り時間の延長や得点の加算など
+        // 例:
+        exterminatedCount += 1 // おばけを退治した数をカウント
+        if exterminatedCount >= maxExterminationCount {
+            endGame() // ゲーム終了処理
+        } else {
+            // 再度QRコードのスキャンを可能にする
+            isQRCodeVisible = false
+            detectedQRCodeType = nil
+            initializeGameArray() // ゲーム配列を再初期化
+        }
+    }
     
     func endGame() {
-        // ゲーム終了の処理
-        gameTimer?.invalidate() // タイマーを停止
-        print("ゲームが終了しました！")
-        // 結果の表示やランキング処理を追加
+        gameTimer?.invalidate()
+        print("ゲームが終了しました。")
+        
+        // 結果画面に移行
+        let resultViewController = ResultViewController() // 結果表示用のビューコントローラーを作成
+        resultViewController.exterminatedCount = exterminatedCount // 退治した数を渡す
+        resultViewController.remainingTime = remainingTime // 残り時間を渡す
+        present(resultViewController, animated: true, completion: nil) // 結果画面に遷移
     }
+    
     func startDummyMode() {
         isDummyMode = true
         hideQRCodeImage()
-
+        
         // vacuum_dummyの動画を準備
         if let videoURL = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") {
             videoPlayer2 = AVPlayer(url: videoURL)
-            playerViewController = AVPlayerViewController()
-            playerViewController?.player = videoPlayer2
-            playerViewController?.videoGravity = .resizeAspectFill
-
-            // 動画を画面いっぱいに表示
-            if let playerView = playerViewController?.view {
-                playerView.frame = self.view.bounds
-                playerView.autoresizingMask = [.flexibleWidth, .flexibleHeight] // 自
-                self.view.addSubview(playerView) // プレゼンテーションの完了後に再生
-                
-                // タッチをブロックする透明なビューを追加
-                let touchBlockerView = UIView(frame: self.view.bounds)
-                touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
-                self.view.addSubview(touchBlockerView)
-                
-            }
+            
+            let playerLayer = AVPlayerLayer(player: videoPlayer2)
+            playerLayer.frame = self.view.bounds
+            self.view.layer.addSublayer(playerLayer)
+            
+            
+            // タッチをブロックする透明なビューを追加
+            let touchBlockerView = UIView(frame: self.view.bounds)
+            touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
+            self.view.addSubview(touchBlockerView)
+            
             // 動画の準備が完了しているか確認
             videoPlayer2?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
-
+            
             // 動画再生終了時にダミーモードを終了
             if let currentItem = videoPlayer2?.currentItem {
                 NotificationCenter.default.addObserver(self, selector: #selector(endDummyMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
@@ -439,10 +441,12 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // 加速度センサーを停止
         motionManager.stopAccelerometerUpdates()
     }
-
+    
     // ダミーモードの終了処理
     @objc func endDummyMode() {
         isDummyMode = false
+        
+        playerLayer?.removeFromSuperlayer()
         // 動画ビューを削除する
         videoPlayer2?.pause()
         videoPlayer2?.replaceCurrentItem(with: nil)
@@ -451,8 +455,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // プレイヤービューを削除
         playerViewController?.view.removeFromSuperview() // ここでプレイヤービューを削除
         playerViewController = nil // メモリを解放
-
-        // 必要であれば、次の処理を追加
+        
+        view.isUserInteractionEnabled = true
+        detectedQRCodeType = nil
         print("ダミーモードが終了しました")
     }
     
@@ -464,5 +469,14 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     // QRコードの読み取りを再開する
     func startQRCodeScanning() {
         captureSession.startRunning()
+    }
+    
+    func transitionToResultViewController() {
+        let storyboard = UIStoryboard(name: "Main", bundle: nil)
+        if let resultViewController = storyboard.instantiateViewController(withIdentifier: "ResultViewController") as? ResultViewController {
+            resultViewController.exterminatedCount = exterminatedCount  // 退治数を渡す
+            resultViewController.remainingTime = remainingTime           // 残り時間を渡す
+            self.present(resultViewController, animated: true, completion: nil)
+        }
     }
 }

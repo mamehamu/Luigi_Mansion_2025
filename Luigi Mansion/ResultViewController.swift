@@ -8,12 +8,17 @@
 import UIKit
 
 class ResultViewController: UIViewController {
+    
+    var exterminatedCount: Int = 0
+    var remainingTime: Int = 0
 
     var win: Bool = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .white
+        
+        print("退治数: \(exterminatedCount), 残り時間: \(remainingTime)秒")
 
         let resultLabel = UILabel()
         resultLabel.text = win ? "ゲームクリア！" : "ゲームオーバー"
