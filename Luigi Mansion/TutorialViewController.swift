@@ -10,6 +10,7 @@ import AVFoundation
 
 class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
 
+    var isDebugMode = false
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
     var isSuctionMode = false
@@ -135,6 +136,7 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
 
     @objc func startMainGame() {
         let gameVC = GameViewController()
+        gameVC.isDebugMode = isDebugMode
         gameVC.modalPresentationStyle = .fullScreen
         present(gameVC, animated: true, completion: nil)
     }

@@ -15,14 +15,20 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
     
+    var isDebugMode = false
     var isQRCodeVisible: Bool = false// QRコードが見えているかのフラグ
     var qrCodeLostTimer: Timer? // QRコードが見えなくなった時のタイマー
     var isDummyMode: Bool = false // ダミーQRコードが読み取られたかどうかのフラグ
     var isSuctionMode = false // 吸い取りモードかどうかのフラグ
     
     var detectedQRCodeType: String? // 読み取られたQRコードのタイプ ("ghost" か "dummy")
-    var exterminatedCount = 0
     let maxExterminationCount = 5
+    var exterminatedCount = 0 {
+        didSet {
+            updateDebugLabels()
+            checkForGameEnd() // 退治数が増えるたびにゲーム終了判定を行う
+        }
+    }
     var remainingTime: Int = 180 // 3分
     var gameTimer: Timer?
     var suctionDuration: TimeInterval = 10.0
@@ -36,6 +42,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var ghostImageView: UIImageView!
     var dummyImageView: UIImageView!
     var currentQRCodeImageView: UIImageView!
+    
+    var debugGhostCountLabel: UILabel?
+    var debugRemainingTimeLabel: UILabel?
     
     var lastShakeTime: TimeInterval = 0
     let shakeThreshold: Double = 1.3 //加速度のしきい値
@@ -56,10 +65,28 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupCamera()
         setupImageViews()
         setupTouchGesture()
-        startGameTimer()
         prepareVideos()
         view.backgroundColor = .black
+        
+        if isDebugMode {
+            setupDebugLabels() // デバッグモードの場合、ラベルを設定
+        }
+        startGameTimer()
     }
+    
+    func setupDebugLabels() {
+        debugGhostCountLabel = UILabel(frame: CGRect(x: view.bounds.width - 120, y: 50, width: 100, height: 30))
+        debugGhostCountLabel?.textColor = .red
+        debugGhostCountLabel?.text = "退治数: \(exterminatedCount)"
+        view.addSubview(debugGhostCountLabel!)
+
+        debugRemainingTimeLabel = UILabel(frame: CGRect(x: view.bounds.width - 120, y: 90, width: 100, height: 30))
+        debugRemainingTimeLabel?.textColor = .red
+        debugRemainingTimeLabel?.text = "残り時間: \(remainingTime)"
+        view.addSubview(debugRemainingTimeLabel!)
+    }
+    
+    
     
     func prepareVideos() {
         guard let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") else { return }
@@ -166,18 +193,22 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func startGameTimer() {
-        gameTimer = Timer.scheduledTimer(timeInterval: 1.0, target: self, selector: #selector(updateGameTimer), userInfo: nil, repeats: true)
-    }
-    
-    @objc func updateGameTimer() {
-        if remainingTime > 0 {
-            remainingTime -= 1
-            print("残り時間: \(remainingTime)秒")
-            // タイマー表示を更新する場合はここで処理
-        } else {
-            gameTimer?.invalidate()
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            self.remainingTime -= 1
+            self.updateDebugLabels()
+
+            if self.remainingTime <= 0 {
+                timer.invalidate()
+                self.endGame()
+            }
         }
     }
+    
+    func updateDebugLabels() {
+        debugGhostCountLabel?.text = "退治数: \(exterminatedCount)"
+        debugRemainingTimeLabel?.text = "残り時間: \(remainingTime)"
+    }
+    
     
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
         // 吸い取りモード中、ダミー操作中はQRコードの処理をしない
@@ -377,15 +408,22 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         }
     }
     
-    func endGame() {
-        gameTimer?.invalidate()
-        print("ゲームが終了しました。")
-        
-        // 結果画面に移行
-        let resultViewController = ResultViewController() // 結果表示用のビューコントローラーを作成
-        resultViewController.exterminatedCount = exterminatedCount // 退治した数を渡す
-        resultViewController.remainingTime = remainingTime // 残り時間を渡す
-        present(resultViewController, animated: true, completion: nil) // 結果画面に遷移
+    func checkForGameEnd() {
+        if exterminatedCount >= 5 {
+            endGame(isGameClear: true) // 退治数が5以上の場合はゲームクリア
+        } else if remainingTime <= 0 {
+            endGame(isGameClear: false) // 時間切れの場合はゲームオーバー
+        }
+    }
+
+    
+    func endGame(isGameClear: Bool) {
+        // ゲーム終了の処理
+        let resultVC = ResultViewController()
+        resultVC.modalPresentationStyle = .fullScreen
+        resultVC.exterminatedCount = exterminatedCount
+        resultVC.remainingTime = remainingTime
+        present(resultVC, animated: true, completion: nil)
     }
     
     func startDummyMode() {
