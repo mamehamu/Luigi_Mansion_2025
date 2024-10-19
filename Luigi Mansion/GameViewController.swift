@@ -30,8 +30,6 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var qrCodeNumber: Int?
     
     var player: AVPlayer!
-    var videoPlayer1: AVPlayer?
-    var videoPlayer2: AVPlayer?
     var playerLayer: AVPlayerLayer?
     var playerViewController: AVPlayerViewController!
     
@@ -59,35 +57,18 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupImageViews()
         setupTouchGesture()
         startGameTimer()
-        setupPlayer()
         prepareVideos()
         view.backgroundColor = .black
     }
     
-    func prepareVideos(){
-        guard let videoURL1 = Bundle.main.url(forResource: "vacuum", withExtension: "mp4"),
-              let videoURL2 = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") else { return }
-        
-        let playerItem1 = AVPlayerItem(url: videoURL1)
-        let playerItem2 = AVPlayerItem(url: videoURL2)
-        
-        // バッファ設定
-        playerItem1.preferredForwardBufferDuration = 1.0 // 1秒分のバッファを確保
-        playerItem2.preferredForwardBufferDuration = 1.0 // 1秒分のバッファを確保
-        
-        videoPlayer1 = AVPlayer(playerItem: playerItem1)
-        videoPlayer2 = AVPlayer(playerItem: playerItem2)
+    func prepareVideos() {
+        guard let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") else { return }
+        let playerItem = AVPlayerItem(url: videoURL)
+        playerItem.preferredForwardBufferDuration = 1.0
+        player = AVPlayer(playerItem: playerItem)
     }
     
-    func setupPlayer() {
-        // 動画URLを設定し、AVPlayerを初期化
-        let videoURL = URL(string: "vacuum")!
-        player = AVPlayer(url: videoURL)
-        // AVPlayerLayerを設定
-        let playerLayer = AVPlayerLayer(player: player)
-        playerLayer.frame = self.view.bounds
-        self.view.layer.addSublayer(playerLayer)
-    }
+
     
     func setupCamera() {
         captureSession = AVCaptureSession()
@@ -171,7 +152,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     @objc func handleScreenTap() {
-        if isSuctionMode || isDummyMode || (player.rate > 0.0 || (videoPlayer2?.rate ?? 0.0) > 0.0) {
+        if isSuctionMode || isDummyMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
             return
         }//吸い取りモード中やQRコードがない場合は無視
         if let qrCodeNumber = self.qrCodeNumber, detectedQRCodeType == "ghost" {
@@ -413,9 +394,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         // vacuum_dummyの動画を準備
         if let videoURL = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") {
-            videoPlayer2 = AVPlayer(url: videoURL)
+            player = AVPlayer(url: videoURL)
             
-            let playerLayer = AVPlayerLayer(player: videoPlayer2)
+            let playerLayer = AVPlayerLayer(player: player)
             playerLayer.frame = self.view.bounds
             self.view.layer.addSublayer(playerLayer)
             
@@ -426,15 +407,15 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             self.view.addSubview(touchBlockerView)
             
             // 動画の準備が完了しているか確認
-            videoPlayer2?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
+            player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
             
             // 動画再生終了時にダミーモードを終了
-            if let currentItem = videoPlayer2?.currentItem {
+            if let currentItem = player?.currentItem {
                 NotificationCenter.default.addObserver(self, selector: #selector(endDummyMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
             }
             
             // 動画再生を開始
-            videoPlayer2?.play()
+            player?.play()
         } else {
             print("動画ファイルが見つかりません。")
         }
@@ -448,9 +429,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         playerLayer?.removeFromSuperlayer()
         // 動画ビューを削除する
-        videoPlayer2?.pause()
-        videoPlayer2?.replaceCurrentItem(with: nil)
-        videoPlayer2?.currentItem?.removeObserver(self, forKeyPath: "status")
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        player?.currentItem?.removeObserver(self, forKeyPath: "status")
         
         // プレイヤービューを削除
         playerViewController?.view.removeFromSuperview() // ここでプレイヤービューを削除
@@ -478,5 +459,23 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             resultViewController.remainingTime = remainingTime           // 残り時間を渡す
             self.present(resultViewController, animated: true, completion: nil)
         }
+    }
+    
+    
+    func startVideoPlayback(for videoName: String) {
+        guard let videoURL = Bundle.main.url(forResource: videoName, withExtension: "mp4") else {
+            print("動画ファイルが見つかりません。")
+            return
+        }
+        
+        player = AVPlayer(url: videoURL)
+        
+        // AVPlayerLayerを設定
+        let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.frame = self.view.bounds
+        self.view.layer.addSublayer(playerLayer)
+        
+        // 動画再生を開始
+        player.play()
     }
 }
