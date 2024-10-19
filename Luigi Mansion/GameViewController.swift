@@ -199,7 +199,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
             if self.remainingTime <= 0 {
                 timer.invalidate()
-                self.endGame()
+                self.endGame(isGameClear: false)
             }
         }
     }
@@ -399,7 +399,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // 例:
         exterminatedCount += 1 // おばけを退治した数をカウント
         if exterminatedCount >= maxExterminationCount {
-            endGame() // ゲーム終了処理
+            endGame(isGameClear: true) // ゲーム終了処理
         } else {
             // 再度QRコードのスキャンを可能にする
             isQRCodeVisible = false
@@ -423,6 +423,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         resultVC.modalPresentationStyle = .fullScreen
         resultVC.exterminatedCount = exterminatedCount
         resultVC.remainingTime = remainingTime
+        resultVC.isGameClear = isGameClear // ゲームクリアかどうかのフラグを渡す
         present(resultVC, animated: true, completion: nil)
     }
     

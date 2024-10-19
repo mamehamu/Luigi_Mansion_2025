@@ -11,6 +11,7 @@ class ResultViewController: UIViewController {
     
     var exterminatedCount: Int = 0
     var remainingTime: Int = 0
+    var isGameClear: Bool = false
 
     var win: Bool = false
 
@@ -18,16 +19,25 @@ class ResultViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .white
         
-        print("退治数: \(exterminatedCount), 残り時間: \(remainingTime)秒")
-
-        let resultLabel = UILabel()
-        resultLabel.text = win ? "ゲームクリア！" : "ゲームオーバー"
-        resultLabel.font = UIFont.boldSystemFont(ofSize: 32)
-        resultLabel.textColor = .black
+        let resultLabel = UILabel(frame: CGRect(x: 0, y: 100, width: view.bounds.width, height: 50))
         resultLabel.textAlignment = .center
-        resultLabel.frame = view.bounds
+        resultLabel.font = UIFont.boldSystemFont(ofSize: 24)
+                
+        // クリアかゲームオーバーかを判定してラベルを表示
+        if isGameClear {
+            resultLabel.text = "ゲームクリア！"
+        } else {
+            resultLabel.text = "ゲームオーバー"
+        }
         view.addSubview(resultLabel)
 
+        // 退治数と残り時間のラベルを表示
+        let detailLabel = UILabel(frame: CGRect(x: 0, y: 150, width: view.bounds.width, height: 50))
+        detailLabel.textAlignment = .center
+        detailLabel.font = UIFont.systemFont(ofSize: 20)
+        detailLabel.text = "退治数: \(exterminatedCount), 残り時間: \(remainingTime)秒"
+        view.addSubview(detailLabel)
+        
         // 一定時間後にチュートリアルモードに戻る
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
             self.returnToTutorial()
