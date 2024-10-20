@@ -9,6 +9,7 @@ import UIKit
 import AVKit
 import AVFoundation
 import CoreMotion
+import MediaPlayer
 
 class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     
@@ -21,6 +22,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var isDummyMode: Bool = false // ダミーQRコードが読み取られたかどうかのフラグ
     var isSuctionMode = false // 吸い取りモードかどうかのフラグ
     
+    var initialVolume: Float = 0.5
+    let audioSession = AVAudioSession.sharedInstance()
+
     var detectedQRCodeType: String? // 読み取られたQRコードのタイプ ("ghost" か "dummy")
     let maxExterminationCount = 5
     var exterminatedCount = 0 {
@@ -68,6 +72,19 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         prepareVideos()
         view.backgroundColor = .black
         
+        // 現在の音量を取得
+        initialVolume = audioSession.outputVolume
+
+        // 見えない音量スライダーを追加して音量HUDを非表示にする
+        let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
+        self.view.addSubview(volumeView)
+        
+        // 音量スライダーが表示されないようにする
+        volumeView.isHidden = true
+        
+        // 音量変更の通知を監視
+        NotificationCenter.default.addObserver(self, selector: #selector(volumeDidChange), name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
+        
         if isDebugMode {
             setupDebugLabels() // デバッグモードの場合、ラベルを設定
         }
@@ -86,7 +103,36 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         view.addSubview(debugRemainingTimeLabel!)
     }
     
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        super.pressesBegan(presses, with: event)
+        
+        // リモコンのボタンが押された場合の処理
+        for press in presses {
+            if press.type == .playPause || press.type == .select {
+                print("Bluetoothリモコンのボタンが押されました")
+                handleRemoteButtonPress()
+            }
+        }
+    }
     
+    // 音量変更があった時に呼ばれる関数
+    @objc func volumeDidChange(notification: NSNotification) {
+        // 音量を元の値に戻す
+        setSystemVolume(initialVolume)
+    }
+
+    // 音量をプログラム的に設定する
+    func setSystemVolume(_ volume: Float) {
+        let volumeView = MPVolumeView()
+        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            slider.value = volume
+        }
+    }
+
+    deinit {
+        // 音量変更の通知を解除
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
+    }
     
     func prepareVideos() {
         guard let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") else { return }
@@ -188,6 +234,20 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             gameArray[qrCodeNumber] = "dummy" // 吸い込み後にdummyに置換
         } else if detectedQRCodeType == "dummy" {
             print("画面がタッチされましたが、dummyです。操作不能にします。")
+            startDummyMode()
+        }
+    }
+    
+    func handleRemoteButtonPress() {
+        if isSuctionMode || isDummyMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
+            return
+        }
+        if let qrCodeNumber = self.qrCodeNumber, detectedQRCodeType == "ghost" {
+            print("リモコンのボタンが押され、吸い込みモードに移行します")
+            startSuctionMode()
+            gameArray[qrCodeNumber] = "dummy" // 吸い込み後にdummyに置換
+        } else if detectedQRCodeType == "dummy" {
+            print("リモコンのボタンが押されましたが、dummyです。操作不能にします。")
             startDummyMode()
         }
     }
