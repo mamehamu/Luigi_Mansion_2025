@@ -72,6 +72,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         prepareVideos()
         view.backgroundColor = .black
         
+        preloadVideo(named: "vacuum.mp4")
+        preloadVideo(named: "vacuum_dummy.mp4")
+        
         // 現在の音量を取得
         initialVolume = audioSession.outputVolume
 
@@ -141,7 +144,23 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         player = AVPlayer(playerItem: playerItem)
     }
     
-
+    func preloadVideo(named videoName: String) {
+        // 動画ファイルのURLを取得
+        if let videoPath = Bundle.main.path(forResource: videoName, ofType: nil) {
+            let videoURL = URL(fileURLWithPath: videoPath)
+            let asset = AVAsset(url: videoURL)
+            let playerItem = AVPlayerItem(asset: asset)
+            
+            // 動画を再生する準備をする
+            player = AVPlayer(playerItem: playerItem)
+            playerLayer = AVPlayerLayer(player: player)
+            playerLayer?.frame = self.view.bounds
+            self.view.layer.addSublayer(playerLayer!)
+            
+            // 再生前にプレイヤーを一時停止して準備させる
+            player?.pause()
+        }
+    }
     
     func setupCamera() {
         captureSession = AVCaptureSession()
