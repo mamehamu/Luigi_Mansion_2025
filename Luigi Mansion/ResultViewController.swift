@@ -9,6 +9,10 @@ import UIKit
 
 class ResultViewController: UIViewController {
     
+    public let client = TCPClient(host: "10.202.253.246", port: 8080)
+    
+    var hasSentData = false
+    
     var exterminatedCount: Int = 0
     var remainingTime: Int = 0
     var isGameClear: Bool = false
@@ -52,10 +56,28 @@ class ResultViewController: UIViewController {
         present(tutorialVC, animated: true, completion: nil)
     }
     
+    func sendToUnity(sendnum: Int) {
+        guard !hasSentData else { return }  // 既に送信済みの場合は処理をスキップ
+        
+        let data = String(sendnum).data(using: .utf8)!
+        do {
+            try client.start(data: data)
+            print("Data sent successfully: \(sendnum)")
+            hasSentData = true  // 送信フラグを設定
+        } catch {
+            print("Failed to send data: \(error.localizedDescription)")
+        }
+    }
+    
+    func stopConnection() {
+           self.sendToUnity(sendnum: -10)
+       }
+    
     func resetGame() {
         // 退治数、タイマー、QRコード配列などゲームの状態をリセット
         exterminatedCount = 0
         remainingTime = 180 // 3分にリセット
+        stopConnection()
         
         // QRコードの配列をリセットし、シャッフル
         let gameVC = GameViewController()

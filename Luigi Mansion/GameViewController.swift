@@ -13,6 +13,8 @@ import MediaPlayer
 
 class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     
+    var isQRCodeDetected = false
+    
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
     
@@ -24,7 +26,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     var initialVolume: Float = 0.5
     let audioSession = AVAudioSession.sharedInstance()
-
+    
+    public let client = TCPClient(host: "10.202.253.246", port: 8080)
+    
     var detectedQRCodeType: String? // 読み取られたQRコードのタイプ ("ghost" か "dummy")
     let maxExterminationCount = 5
     var exterminatedCount = 0 {
@@ -45,6 +49,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     var ghostImageView: UIImageView!
     var dummyImageView: UIImageView!
+    var lightImageView: UIImageView!
     var currentQRCodeImageView: UIImageView!
     
     var debugGhostCountLabel: UILabel?
@@ -71,9 +76,12 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupTouchGesture()
         prepareVideos()
         view.backgroundColor = .black
+        sendToUnity(sendnum: -4)
         
         preloadVideo(named: "vacuum.mp4")
         preloadVideo(named: "vacuum_dummy.mp4")
+        
+        lightImageView.isHidden = false
         
         // 現在の音量を取得
         initialVolume = audioSession.outputVolume
@@ -94,6 +102,10 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         startGameTimer()
     }
     
+    func sendToUnity(sendnum: Int) {
+        client.send(data: String(sendnum).data(using: .utf8)!)
+    }
+                    
     func setupDebugLabels() {
         debugGhostCountLabel = UILabel(frame: CGRect(x: view.bounds.width - 120, y: 50, width: 100, height: 30))
         debugGhostCountLabel?.textColor = .red
@@ -193,26 +205,10 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             print("Could not add metadata output to capture session")
             return
         }
-        
-        // カメラのプレビュー設定
-        let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.frame = view.layer.bounds
-        previewLayer.videoGravity = .resizeAspectFill  // 映像を画面にフィットさせる
-        
-        // カメラの向きを横画面に設定
-        if let connection = previewLayer.connection {
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = .landscapeRight  // 横向きの向きに合わせる
-            }
-        }
-        
-        // カメラプレビューを表示
-        view.layer.addSublayer(previewLayer)
-        
-        
+
         DispatchQueue.global(qos: .userInitiated).async {
-            self.captureSession.startRunning() // ここをバックグラウンドスレッドで実行
-        }
+         self.captureSession.startRunning() // ここをバックグラウンドスレッドで実行
+         }
     }
     
     func setupImageViews() {
@@ -236,6 +232,29 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         currentQRCodeImageView.frame = view.bounds
         currentQRCodeImageView.isHidden = true
         view.addSubview(currentQRCodeImageView)
+        
+        // light.png の UIImageView を作成
+        lightImageView = UIImageView(image: UIImage(named: "light"))
+        lightImageView.contentMode = .scaleAspectFit
+        lightImageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(lightImageView)
+        
+        NSLayoutConstraint.activate([
+                    lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    lightImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+                    lightImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+                    lightImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
+                    
+                    dummyImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    dummyImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+                    dummyImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+                    dummyImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
+                    
+                    ghostImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    ghostImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+                    ghostImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+                    ghostImageView.heightAnchor.constraint(equalTo: view.heightAnchor)
+                ])
     }
     
     func setupTouchGesture() {
@@ -300,11 +319,14 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 handleQRCodeLost()
                 return
             }
+            AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+            lightImageView.isHidden = true
             
             // QRコードが読み取れたので、処理を実行
             handleQRCodeDetected(qrCodeNumber: qrCodeNumber)
         } else {
             handleQRCodeLost()
+            lightImageView.isHidden = false
         }
     }
     
@@ -329,6 +351,10 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 detectedQRCodeType = "dummy"
                 print("QRコードがdummyです")
                 showQRCodeImage(image: dummyImageView.image!)
+                // ダミーQRコードを読み取った場合、表示を無効にする処理を追加
+                if isDummyMode {
+                    dummyImageView.isHidden = true // dummyが表示されないように            }
+                }
             }
         }
         
@@ -354,11 +380,14 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     func showQRCodeImage(image: UIImage) {
         currentQRCodeImageView.image = image
         currentQRCodeImageView.isHidden = false
+        lightImageView.isHidden = true
+        
     }
     
     func hideQRCodeImage(){
         currentQRCodeImageView.isHidden = true
         currentQRCodeImageView.image = nil
+        lightImageView.isHidden = false
     }
     
     func startSuctionMode() {
@@ -446,6 +475,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         // 残りの処理（例: おばけを退治したことを記録）
         exterminatedCount += 1
+        sendToUnity(sendnum: exterminatedCount)
         
         player.pause()
         
@@ -467,9 +497,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         } else {
             print("QRコード番号が無効です")
         }
-        
+        checkForGameEnd()
         detectedQRCodeType = nil
-        isQRCodeVisible = false
     }
     
     func updateGameAfterSuction() {
@@ -490,8 +519,10 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     func checkForGameEnd() {
         if exterminatedCount >= 5 {
             endGame(isGameClear: true) // 退治数が5以上の場合はゲームクリア
+            sendToUnity(sendnum: -5)
         } else if remainingTime <= 0 {
-            endGame(isGameClear: false) // 時間切れの場合はゲームオーバー
+            endGame(isGameClear: false)// 時間切れの場合はゲームオーバー
+            sendToUnity(sendnum: -6)
         }
     }
 
@@ -508,6 +539,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     func startDummyMode() {
         isDummyMode = true
+        lightImageView.isHidden = true
         hideQRCodeImage()
         
         // vacuum_dummyの動画を準備
@@ -557,6 +589,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         view.isUserInteractionEnabled = true
         detectedQRCodeType = nil
+        lightImageView.isHidden = false
         print("ダミーモードが終了しました")
     }
     
