@@ -69,15 +69,10 @@ class ResultViewController: UIViewController {
         }
     }
     
-    func stopConnection() {
-           self.sendToUnity(sendnum: -10)
-       }
-    
     func resetGame() {
         // 退治数、タイマー、QRコード配列などゲームの状態をリセット
         exterminatedCount = 0
         remainingTime = 180 // 3分にリセット
-        stopConnection()
         
         // QRコードの配列をリセットし、シャッフル
         let gameVC = GameViewController()

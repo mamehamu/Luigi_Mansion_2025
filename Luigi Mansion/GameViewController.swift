@@ -76,7 +76,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupTouchGesture()
         prepareVideos()
         view.backgroundColor = .black
-        sendToUnity(sendnum: -4)
+        sendToUnity(sendnum: -5)
         
         preloadVideo(named: "vacuum.mp4")
         preloadVideo(named: "vacuum_dummy.mp4")
@@ -212,6 +212,13 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func setupImageViews() {
+        
+        // light.png の UIImageView を作成
+        lightImageView = UIImageView(image: UIImage(named: "light"))
+        lightImageView.contentMode = .scaleAspectFill
+        lightImageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(lightImageView)
+        
         // Ghost ImageView の設定
         ghostImageView = UIImageView(image: UIImage(named: "ghost"))
         ghostImageView.contentMode = .scaleAspectFill
@@ -232,12 +239,6 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         currentQRCodeImageView.frame = view.bounds
         currentQRCodeImageView.isHidden = true
         view.addSubview(currentQRCodeImageView)
-        
-        // light.png の UIImageView を作成
-        lightImageView = UIImageView(image: UIImage(named: "light"))
-        lightImageView.contentMode = .scaleAspectFit
-        lightImageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(lightImageView)
         
         NSLayoutConstraint.activate([
                     lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -391,6 +392,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func startSuctionMode() {
+        sendToUnity(sendnum: -6)
         isSuctionMode = true
         hideQRCodeImage()
         
@@ -470,6 +472,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     
     @objc func endSuctionMode(qrCodeNumber : Int) {
+        sendToUnity(sendnum: -7)
         isSuctionMode = false
         print("吸い込みモードが終了しました")
         
@@ -519,10 +522,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     func checkForGameEnd() {
         if exterminatedCount >= 5 {
             endGame(isGameClear: true) // 退治数が5以上の場合はゲームクリア
-            sendToUnity(sendnum: -5)
         } else if remainingTime <= 0 {
             endGame(isGameClear: false)// 時間切れの場合はゲームオーバー
-            sendToUnity(sendnum: -6)
+            sendToUnity(sendnum: -8)
         }
     }
 
