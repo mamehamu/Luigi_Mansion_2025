@@ -8,8 +8,9 @@
 import UIKit
 
 class ResultViewController: UIViewController {
-    
+    /*
     public let client = TCPClient(host: "10.202.253.246", port: 8080)
+    */
     
     var hasSentData = false
     
@@ -23,7 +24,9 @@ class ResultViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .white
         
-        sendToUnity(sendnum: -10)
+        let data = "-10".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
+        
         let resultLabel = UILabel(frame: CGRect(x: 0, y: 100, width: view.bounds.width, height: 50))
         resultLabel.textAlignment = .center
         resultLabel.font = UIFont.boldSystemFont(ofSize: 24)
@@ -56,7 +59,7 @@ class ResultViewController: UIViewController {
         tutorialVC.modalPresentationStyle = .fullScreen
         present(tutorialVC, animated: true, completion: nil)
     }
-    
+    /*
     func sendToUnity(sendnum: Int) {
         guard !hasSentData else {
             print("Data already sent, skipping for value: \(sendnum)")
@@ -65,14 +68,14 @@ class ResultViewController: UIViewController {
         
         let data = String(sendnum).data(using: .utf8)!
         do {
-            client.start(data: data)
-            print("Data sent successfully with value: \(sendnum)")
 
+
+            print("Data sent successfully with value: \(sendnum)")
         } catch {
             print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
         }
     }
-    
+    */
     func resetGame() {
         // 退治数、タイマー、QRコード配列などゲームの状態をリセット
         exterminatedCount = 0

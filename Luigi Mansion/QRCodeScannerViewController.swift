@@ -4,7 +4,7 @@
 //
 //  Created by rikuya on 2024/10/14.
 //
-
+/*
 import AVFoundation
 import UIKit
 import CoreMotion
@@ -211,3 +211,4 @@ class QRCodeScannerViewController: UIViewController, AVCaptureMetadataOutputObje
         }
     }
 }
+*/

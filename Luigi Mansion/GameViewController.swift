@@ -29,8 +29,9 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var initialVolume: Float = 0.5
     let audioSession = AVAudioSession.sharedInstance()
     
-    public let client = TCPClient(host: "10.202.253.246", port: 8080)
-    
+    /*
+    public let client = TCPClient(host: "10.202.253.246" ,port: 8080)
+    */
     var detectedQRCodeType: String? // 読み取られたQRコードのタイプ ("ghost" か "dummy")
     let maxExterminationCount = 5
     var exterminatedCount = 0 {
@@ -79,7 +80,12 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         prepareVideos()
         setupCustomVolumeView()
         view.backgroundColor = .black
+        /*
         sendToUnity(sendnum: -5)
+        */
+        
+        let data = "-5".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
         
         preloadVideo(named: "vacuum.mp4")
         preloadVideo(named: "vacuum_dummy.mp4")
@@ -96,7 +102,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         }
         startGameTimer()
     }
-    
+    /*
     func sendToUnity(sendnum: Int) {
         guard !hasSentData else {
             print("Data already sent, skipping for value: \(sendnum)")
@@ -105,14 +111,14 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         let data = String(sendnum).data(using: .utf8)!
         do {
-            client.start(data: data)
             print("Data sent successfully with value: \(sendnum)")
+
             // 送信フラグを設定
         } catch {
             print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
         }
     }
-            
+         */
     func setupCustomVolumeView() {
         let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
         volumeView.isHidden = true  // 標準の音量ビューを非表示に
@@ -306,6 +312,16 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func handleRemoteButtonPress() {
+        
+        let currentVolume = AVAudioSession.sharedInstance().outputVolume
+        let maxVolume: Float = 0.7 // 最大音量
+        
+        if currentVolume >= maxVolume {
+             // 音量を少し下げる
+            
+             setVolume(volume: currentVolume - 0.1)
+         }
+        
         if isSuctionMode || isDummyMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
             return
         }
@@ -316,6 +332,17 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         } else if detectedQRCodeType == "dummy" {
             print("リモコンのボタンが押されましたが、dummyです。操作不能にします。")
             startDummyMode()
+        }
+    }
+    
+    func setVolume(volume: Float) {
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(true)
+            // audioSessionを通じて音量を設定する処理
+            // ここで音量設定の処理を追加
+        } catch {
+            print("Error setting volume: \(error.localizedDescription)")
         }
     }
     
@@ -447,11 +474,15 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         currentQRCodeImageView.isHidden = true
         currentQRCodeImageView.image = nil
         lightImageView.isHidden = false
-        view.bringSubviewToFront(lightImageView)
     }
     
     func startSuctionMode() {
+        /*
         sendToUnity(sendnum: -6)
+         */
+        let data = "-6".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
+        
         isSuctionMode = true
         hideQRCodeImage()
         
@@ -507,6 +538,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         }
     }
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        
+        if keyPath == "outputVolume" {
+            handleRemoteButtonPress() // 音量ボタンをリモコンボタンと同様に扱う
+        }
+        
         if keyPath == "status" {
         if let player = player, player.status == .readyToPlay {
                 // 動画の準備が完了したので再生
@@ -544,7 +580,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         // 残りの処理（例: おばけを退治したことを記録）
         exterminatedCount += 1
+        /*
         sendToUnity(sendnum: exterminatedCount)
+        */
+        let data = "\(exterminatedCount)".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
         
         player.pause()
         
@@ -589,13 +629,19 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     */
     func checkForGameEnd() {
         if exterminatedCount >= 5 {
-            sendToUnity(sendnum: exterminatedCount)
+            let data = "\(exterminatedCount)".data(using: .utf8)!
+            TCPClient.shared.start(data: data)
+            
             endGame(isGameClear: true) // 退治数が5以上の場合はゲームクリア
         } else if remainingTime <= 0 {
-            sendToUnity(sendnum: exterminatedCount)
+            let data = "\(exterminatedCount)".data(using: .utf8)!
+            TCPClient.shared.start(data: data)
+            
             endGame(isGameClear: false)// 時間切れの場合はゲームオーバー
         }
-        sendToUnity(sendnum: exterminatedCount)
+        let data = "\(exterminatedCount)".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
+        
     }
     
 

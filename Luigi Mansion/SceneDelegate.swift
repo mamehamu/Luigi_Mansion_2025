@@ -4,7 +4,7 @@
 //
 //  Created by rikuya on 2024/10/14.
 //
-
+/*
 import UIKit
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
@@ -28,3 +28,4 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
     }
 }
+*/

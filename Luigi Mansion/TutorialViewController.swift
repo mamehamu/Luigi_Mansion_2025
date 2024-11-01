@@ -10,8 +10,15 @@ import AVKit
 import AVFoundation
 import CoreMotion
 import MediaPlayer
+import SwiftUI
 
 class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+    
+    
+    let audioSession = AVAudioSession.sharedInstance()
+    
+    var initialVolume: Float = 0.0
+    var volumeView: MPVolumeView!
     
     var isQRCodeDetected = false
     
@@ -28,15 +35,12 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     var isDebugMode = false
     
     var tutorial_flag = false //吸い取りが完了したらtrue
-  
+    
     var start_flag = false
     
-    var initialVolume: Float = 0.5
-    let audioSession = AVAudioSession.sharedInstance()
     
-    var detectedQRCodeType: String? //
+    var detectedQRCodeType: String? = nil//
     
-    public let client = TCPClient(host: "10.202.253.246", port: 8080)
     
     var suctionDuration: TimeInterval = 10.0
     
@@ -60,6 +64,12 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        try! audioSession.setActive(true)
+        
+        let data = "-1".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
+
         setupCamera()
         setupImageViews()
         setupTouchGesture()
@@ -71,8 +81,14 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
         initialVolume = audioSession.outputVolume
         setSystemVolume(initialVolume)
         setupVolumeButtonHandler()
+        /*
         sendToUnity(sendnum: -1)
-        
+        */
+        // 音量変更通知の監視を設定
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleVolumeChange),
+                                               name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
+                                               object: nil)
     }
     /*
      func sendToUnity(sendnum: Int) {
@@ -80,19 +96,68 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
      
      }
      */
-     
-     func setupCustomVolumeView() {
-         let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
-         volumeView.isHidden = true  // 標準の音量ビューを非表示に
-         self.view.addSubview(volumeView)
-     }
-     
+    
+    func startListeningVolumeButton() {
+        // MPVolumeViewを画面の外側に追い出して見えないようにする
+        let frame = CGRect(x: -100, y: -100, width: 100, height: 100)
+        volumeView = MPVolumeView(frame: frame)
+        volumeView.sizeToFit()
+        view.addSubview(volumeView)
+        
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(true)
+            // AVAudioSessionの出力音量を取得して、最大音量と無音に振り切れないように初期音量を設定する
+            let vol = audioSession.outputVolume
+            initialVolume = Float(vol.description)!
+            if initialVolume > 0.9 {
+                initialVolume = 0.9
+            } else if initialVolume < 0.1 {
+                initialVolume = 0.1
+            }
+            setVolume(initialVolume)
+            // 出力音量の監視を開始
+            audioSession.addObserver(self, forKeyPath: "outputVolume", options: .new, context: nil)
+        } catch {
+            print("Could not observer outputVolume ", error)
+        }
+    }
+    
+    func setVolume(_ volume: Float) {
+        (volumeView.subviews.filter{NSStringFromClass($0.classForCoder) == "MPVolumeSlider"}.first as? UISlider)?.setValue(initialVolume, animated: false)
+    }
+    
+    func stopListeningVolumeButton() {
+        // 出力音量の監視を終了
+        AVAudioSession.sharedInstance().removeObserver(self, forKeyPath: "outputVolume")
+        // ボリュームビューを破棄
+        volumeView.removeFromSuperview()
+        volumeView = nil
+    }
+    
+    
+    
+    
+    // 音量を強制的に0.6に保つメソッド
+    func forceVolumeToFixedValue() {
+        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            slider.value = 0.6 // 音量を0.6に設定
+        }
+    }
+    
+    
+    func setupCustomVolumeView() {
+        let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
+        volumeView.isHidden = true  // 標準の音量ビューを非表示に
+        self.view.addSubview(volumeView)
+    }
+    
     // 音量変更があった時に呼ばれる関数
     @objc func volumeDidChange(notification: NSNotification) {
         // 音量を元の値に戻す
         setSystemVolume(initialVolume)
     }
-
+    
     // 音量をプログラム的に設定する
     func setSystemVolume(_ volume: Float) {
         let volumeView = MPVolumeView()
@@ -156,19 +221,19 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
         view.addSubview(currentQRCodeImageView)
         
         NSLayoutConstraint.activate([
-                    lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    lightImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                    lightImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                    lightImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
-                    
-                    ghostImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    ghostImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                    ghostImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                    ghostImageView.heightAnchor.constraint(equalTo: view.heightAnchor)
-                ])
+            lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            lightImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            lightImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            lightImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
+            
+            ghostImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            ghostImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            ghostImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            ghostImageView.heightAnchor.constraint(equalTo: view.heightAnchor)
+        ])
     }
     
-    
+    /*
     func sendToUnity(sendnum: Int) {
         guard !hasSentData else {
             print("Data already sent, skipping for value: \(sendnum)")
@@ -177,14 +242,12 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
         
         let data = String(sendnum).data(using: .utf8)!
         do {
-            client.start(data: data)
             print("Data sent successfully with value: \(sendnum)")
-
         } catch {
             print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
         }
     }
-    
+    */
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         super.pressesBegan(presses, with: event)
         
@@ -207,10 +270,10 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
         } catch {
             print("Failed to activate audio session")
         }
-
+        
         audioSession.addObserver(self, forKeyPath: "outputVolume", options: [.old, .new], context: nil)
     }
-   
+    
     
     func setupTouchGesture() {
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap))
@@ -218,7 +281,7 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     }
     
     @objc func handleScreenTap() {
-        if isSuctionMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
+        if isSuctionMode || (player?.rate ?? 0.0) > 0.0 {
             return
         }//吸い取りモード中やQRコードがない場合は無視
         if detectedQRCodeType == "ghost" {
@@ -228,6 +291,8 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     }
     
     func handleRemoteButtonPress() {
+        print("ボタンが押されました")
+        
         if isSuctionMode || (player?.rate ?? 0.0) > 0.0 {
             return
         }
@@ -239,6 +304,71 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
             print("リモコンが押された!!!のでチュートリアル完!!")
             handleTapAndDelayStart()
         }
+    }
+    /*
+     // 音量を監視し、最大の場合に少し下げる
+     func checkAndAdjustVolume() {
+     let currentVolume = AVAudioSession.sharedInstance().outputVolume
+     let maxVolume: Float = 1.0 // 最大音量
+     let volumeStep: Float = 0.1 // 下げる音量のステップ
+     
+     if currentVolume >= maxVolume {
+     // 音量を少し下げる
+     
+     setVolume(volume: currentVolume - volumeStep)
+     }
+     }
+     */
+    /*
+     // 音量を変更するメソッド
+     func setVolume(volume: Float) {
+     let audioSession = AVAudioSession.sharedInstance()
+     do {
+     try audioSession.setActive(true)
+     try audioSession.setCategory(.playback, mode: .default)
+     try audioSession.setActive(true)
+     } catch {
+     print("Error setting audio session: \(error.localizedDescription)")
+     }
+     
+     let volumeView = MPVolumeView(frame: .zero)
+     if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+     slider.value = volume
+     }
+     }
+     */
+    
+    func setVolume(to value: Float) {
+        let audioSession = AVAudioSession.sharedInstance()
+        
+        do {
+            try audioSession.setActive(true)
+            
+            // 音量の制限を設定
+            let currentVolume = audioSession.outputVolume
+            let newVolume = min(max(currentVolume + value, 0.1), 0.9) // 0.1～0.9の範囲に制限
+            
+            // 音量を設定する
+            let volumeView = MPVolumeView(frame: .zero)
+            if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+                slider.value = newVolume
+            }
+            
+            print("Volume set to: \(newVolume)")
+        } catch {
+            print("Failed to set audio session active: \(error)")
+        }
+    }
+    
+    @objc func handleVolumeChange(notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let volumeChange = userInfo["AVSystemController_AudioVolumeNotificationParameter"] as? Float else {
+            return
+        }
+        
+        // 音量が最小または最大になるのを防ぐ
+        let newVolume = min(max(volumeChange, 0.1), 0.9) // 0.1～0.9の範囲に制限
+        setVolume(to: newVolume)
     }
     
     
@@ -321,24 +451,24 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     }
     
     /*
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        if isSuctionMode {
-            // 吸い込みモード中は新しいスキャンを無視
-            return
-        }
-        
-        if let metadataObject = metadataObjects.first {
-            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
-                  let stringValue = readableObject.stringValue else { return }
-            
-            if stringValue == "marker_tutorial" {
-                // スキャン停止
-                captureSession.stopRunning()
-                isSuctionMode = true
-                startSuctionMode()
-            }
-        }
-    }
+     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+     if isSuctionMode {
+     // 吸い込みモード中は新しいスキャンを無視
+     return
+     }
+     
+     if let metadataObject = metadataObjects.first {
+     guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
+     let stringValue = readableObject.stringValue else { return }
+     
+     if stringValue == "marker_tutorial" {
+     // スキャン停止
+     captureSession.stopRunning()
+     isSuctionMode = true
+     startSuctionMode()
+     }
+     }
+     }
      */
     
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
@@ -364,7 +494,7 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
             lightImageView.isHidden = false
         }
     }
-
+    
     
     func handleQRCodeDetected(qrCodeNumber: String) {
         lightImageView.isHidden = true
@@ -403,20 +533,20 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     
     
     /*
-    func enterSuctionMode() {
-        // おばけを表示
-        ghostImageView.isHidden = false
-        
-        // 吸い込みアニメーション
-        UIView.animate(withDuration: 3.0, animations: {
-            self.ghostImageView.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
-            self.ghostImageView.alpha = 0
-        }) { _ in
-            self.ghostImageView.removeFromSuperview()
-            self.waitForTouchToStartGame()
-        }
-    }
-    */
+     func enterSuctionMode() {
+     // おばけを表示
+     ghostImageView.isHidden = false
+     
+     // 吸い込みアニメーション
+     UIView.animate(withDuration: 3.0, animations: {
+     self.ghostImageView.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
+     self.ghostImageView.alpha = 0
+     }) { _ in
+     self.ghostImageView.removeFromSuperview()
+     self.waitForTouchToStartGame()
+     }
+     }
+     */
     func waitForTouchToStartGame() {
         // タップ待機のメッセージ表示
         let tapToStartLabel = UILabel()
@@ -436,7 +566,11 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     @objc func handleTapAndDelayStart() {
         start_flag = true
         // タップされたときに sendToUnity を呼び出して -4 を送信
+        /*
         sendToUnity(sendnum: -4)
+        */
+        let data = "-4".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
         
         // タップジェスチャーを無効化して、複数回押されるのを防止
         if let tapGesture = tapGesture {
@@ -459,7 +593,12 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     }
     
     func startSuctionMode() {
+        /*
         sendToUnity(sendnum: -2)
+        */
+        let data = "-2".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
+        
         isSuctionMode = true
         hideQRCodeImage()
         
@@ -517,7 +656,7 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     
     func showQRCodeImage(image: UIImage) {
         print("showQRCodeImage: 画像が表示されます")
-
+        
         currentQRCodeImageView.image = image
         currentQRCodeImageView.isHidden = false
         lightImageView.isHidden = true
@@ -531,7 +670,9 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
         
+        
         if keyPath == "outputVolume" {
+            print("ボタンが押されました2")
             handleRemoteButtonPress() // 音量ボタンをリモコンボタンと同様に扱う
         }
         
@@ -560,7 +701,12 @@ class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDe
     
     @objc func endSuctionMode(qrCodeNumber : Int) {
         tutorial_flag = true
+        /*
         sendToUnity(sendnum: -3)
+         */
+        let data = "-3".data(using: .utf8)!
+        TCPClient.shared.start(data: data)
+        
         isSuctionMode = false
         
         ghostImageView.isHidden = true
