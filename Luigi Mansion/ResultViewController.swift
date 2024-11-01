@@ -23,6 +23,7 @@ class ResultViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .white
         
+        sendToUnity(sendnum: -10)
         let resultLabel = UILabel(frame: CGRect(x: 0, y: 100, width: view.bounds.width, height: 50))
         resultLabel.textAlignment = .center
         resultLabel.font = UIFont.boldSystemFont(ofSize: 24)
@@ -57,15 +58,18 @@ class ResultViewController: UIViewController {
     }
     
     func sendToUnity(sendnum: Int) {
-        guard !hasSentData else { return }  // 既に送信済みの場合は処理をスキップ
+        guard !hasSentData else {
+            print("Data already sent, skipping for value: \(sendnum)")
+            return
+        }
         
         let data = String(sendnum).data(using: .utf8)!
         do {
-            try client.start(data: data)
-            print("Data sent successfully: \(sendnum)")
-            hasSentData = true  // 送信フラグを設定
+            client.start(data: data)
+            print("Data sent successfully with value: \(sendnum)")
+
         } catch {
-            print("Failed to send data: \(error.localizedDescription)")
+            print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
         }
     }
     

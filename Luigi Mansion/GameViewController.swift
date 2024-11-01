@@ -18,6 +18,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
     
+    var hasSentData = false
+    
     var isDebugMode = false
     var isQRCodeVisible: Bool = false// QRコードが見えているかのフラグ
     var qrCodeLostTimer: Timer? // QRコードが見えなくなった時のタイマー
@@ -56,8 +58,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var debugRemainingTimeLabel: UILabel?
     
     var lastShakeTime: TimeInterval = 0
-    let shakeThreshold: Double = 1.3 //加速度のしきい値
-    let cooldownPeriod: TimeInterval = 0.5 //次の振動を感知するまでのクールダウン
+    let shakeThreshold: Double = 1.10 //加速度のしきい値
+    let cooldownPeriod: TimeInterval = 0.75 //次の振動を感知するまでのクールダウン
     
     
     var gameArray: [String] = ["ghost", "ghost", "ghost", "ghost", "ghost", "dummy", "dummy"]
@@ -75,6 +77,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupImageViews()
         setupTouchGesture()
         prepareVideos()
+        setupCustomVolumeView()
         view.backgroundColor = .black
         sendToUnity(sendnum: -5)
         
@@ -85,16 +88,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         // 現在の音量を取得
         initialVolume = audioSession.outputVolume
-
-        // 見えない音量スライダーを追加して音量HUDを非表示にする
-        let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
-        self.view.addSubview(volumeView)
-        
-        // 音量スライダーが表示されないようにする
-        volumeView.isHidden = true
-        
-        // 音量変更の通知を監視
-        NotificationCenter.default.addObserver(self, selector: #selector(volumeDidChange), name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
+        setSystemVolume(initialVolume)
+        setupVolumeButtonHandler()
         
         if isDebugMode {
             setupDebugLabels() // デバッグモードの場合、ラベルを設定
@@ -103,9 +98,41 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     func sendToUnity(sendnum: Int) {
-        client.send(data: String(sendnum).data(using: .utf8)!)
+        guard !hasSentData else {
+            print("Data already sent, skipping for value: \(sendnum)")
+            return
+        }
+        
+        let data = String(sendnum).data(using: .utf8)!
+        do {
+            client.start(data: data)
+            print("Data sent successfully with value: \(sendnum)")
+            // 送信フラグを設定
+        } catch {
+            print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
+        }
     }
-                    
+            
+    func setupCustomVolumeView() {
+        let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
+        volumeView.isHidden = true  // 標準の音量ビューを非表示に
+        self.view.addSubview(volumeView)
+    }
+    
+    // 音量変更があった時に呼ばれる関数
+    @objc func volumeDidChange(notification: NSNotification) {
+        // 音量を元の値に戻す
+        setSystemVolume(initialVolume)
+    }
+
+    // 音量をプログラム的に設定する
+    func setSystemVolume(_ volume: Float) {
+        let volumeView = MPVolumeView()
+        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            slider.value = volume
+        }
+    }
+    
     func setupDebugLabels() {
         debugGhostCountLabel = UILabel(frame: CGRect(x: view.bounds.width - 120, y: 50, width: 100, height: 30))
         debugGhostCountLabel?.textColor = .red
@@ -129,26 +156,21 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             }
         }
     }
-    
-    // 音量変更があった時に呼ばれる関数
-    @objc func volumeDidChange(notification: NSNotification) {
-        // 音量を元の値に戻す
-        setSystemVolume(initialVolume)
-    }
 
-    // 音量をプログラム的に設定する
-    func setSystemVolume(_ volume: Float) {
-        let volumeView = MPVolumeView()
-        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
-            slider.value = volume
+    func setupVolumeButtonHandler() {
+        let volumeView = MPVolumeView(frame: .zero)
+        view.addSubview(volumeView)
+        
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(true)
+        } catch {
+            print("Failed to activate audio session")
         }
+
+        audioSession.addObserver(self, forKeyPath: "outputVolume", options: [.old, .new], context: nil)
     }
 
-    deinit {
-        // 音量変更の通知を解除
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
-    }
-    
     func prepareVideos() {
         guard let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") else { return }
         let playerItem = AVPlayerItem(url: videoURL)
@@ -174,10 +196,16 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         }
     }
     
+    deinit {
+        // 音量変更の通知を解除
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
+    }
+    
+    
     func setupCamera() {
         captureSession = AVCaptureSession()
         
-        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else { return }
+        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else { return }
         let videoInput: AVCaptureDeviceInput
         
         do {
@@ -317,22 +345,27 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
                   let stringValue = readableObject.stringValue,
                   let qrCodeNumber = Int(stringValue) else {
+                
+                
+                
+                
                 handleQRCodeLost()
                 return
             }
-            AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
-            lightImageView.isHidden = true
             
             // QRコードが読み取れたので、処理を実行
             handleQRCodeDetected(qrCodeNumber: qrCodeNumber)
+            
         } else {
             handleQRCodeLost()
             lightImageView.isHidden = false
         }
     }
+
     
     func handleQRCodeDetected(qrCodeNumber: Int) {
         self.qrCodeNumber = qrCodeNumber
+        lightImageView.isHidden = true
         // QRコードが検出された時の処理
         if !isQRCodeVisible {
             isQRCodeVisible = true
@@ -342,16 +375,34 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // QRコードに対応する処理（ghostかdummyかの判定）
         if qrCodeNumber >= 0 && qrCodeNumber < gameArray.count {
             let qrCodeType = gameArray[qrCodeNumber]
+            lightImageView.isHidden = false
             
             if qrCodeType == "ghost" {
                 detectedQRCodeType = "ghost"
                 print("QRコードがghostです。画面タッチで吸い込みモードに移行できます")
-                showQRCodeImage(image: ghostImageView.image!)
+               
+                lightImageView.isHidden = true
+                dummyImageView.isHidden = true
                 
+                currentQRCodeImageView.isHidden = false
+                ghostImageView.isHidden = false
+                showQRCodeImage(image: ghostImageView.image!)
+                view.bringSubviewToFront(ghostImageView)
+                
+                if isSuctionMode {
+                    ghostImageView.isHidden = true
+                }
             } else if qrCodeType == "dummy" {
                 detectedQRCodeType = "dummy"
                 print("QRコードがdummyです")
+                lightImageView.isHidden = true
+                ghostImageView.isHidden = true
+                
+                dummyImageView.isHidden = false
+                currentQRCodeImageView.isHidden = false
+
                 showQRCodeImage(image: dummyImageView.image!)
+                view.bringSubviewToFront(dummyImageView)
                 // ダミーQRコードを読み取った場合、表示を無効にする処理を追加
                 if isDummyMode {
                     dummyImageView.isHidden = true // dummyが表示されないように            }
@@ -373,22 +424,30 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                     self?.detectedQRCodeType = nil
                     print("QRコードが消えました")
                     self?.hideQRCodeImage() // QRコードが消えたら画像も非表示にする
+                    self?.ghostImageView.isHidden = true
+                    self?.dummyImageView.isHidden = true
+                    self?.currentQRCodeImageView.isHidden = true
+                    self?.lightImageView.isHidden = false
+                    
                 }
             }
         }
     }
     
     func showQRCodeImage(image: UIImage) {
+        print("showQRCodeImage: 画像が表示されます")
+
         currentQRCodeImageView.image = image
         currentQRCodeImageView.isHidden = false
+        view.bringSubviewToFront(currentQRCodeImageView)
         lightImageView.isHidden = true
-        
     }
     
     func hideQRCodeImage(){
         currentQRCodeImageView.isHidden = true
         currentQRCodeImageView.image = nil
         lightImageView.isHidden = false
+        view.bringSubviewToFront(lightImageView)
     }
     
     func startSuctionMode() {
@@ -449,7 +508,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
         if keyPath == "status" {
-            if let player = player, player.status == .readyToPlay {
+        if let player = player, player.status == .readyToPlay {
                 // 動画の準備が完了したので再生
                 player.play()
             } else if let player = player, player.status == .failed {
@@ -464,16 +523,23 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         // 現在の速度から1.5倍にゆっくり変更
         let currentRate = player.rate
-        if currentRate < 3.0{
-            player.rate = min(currentRate + 0.5, 3.0)
+        if currentRate < 5.0{
+            player.rate = min(currentRate + 0.5, 5.0)
         }
     }
     
     
     
     @objc func endSuctionMode(qrCodeNumber : Int) {
-        sendToUnity(sendnum: -7)
         isSuctionMode = false
+        
+        dummyImageView.isHidden = true
+        ghostImageView.isHidden = true
+        currentQRCodeImageView.isHidden = true
+        lightImageView.isHidden = false
+        showQRCodeImage(image: lightImageView.image!)
+        view.bringSubviewToFront(lightImageView)
+        
         print("吸い込みモードが終了しました")
         
         // 残りの処理（例: おばけを退治したことを記録）
@@ -481,6 +547,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         sendToUnity(sendnum: exterminatedCount)
         
         player.pause()
+        
         
         // 動画表示の削除
         playerViewController.view.removeFromSuperview()
@@ -503,7 +570,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         checkForGameEnd()
         detectedQRCodeType = nil
     }
-    
+   /*
     func updateGameAfterSuction() {
         // 吸い取りモード後の処理をここに実装
         // たとえば、残り時間の延長や得点の加算など
@@ -513,20 +580,24 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             endGame(isGameClear: true) // ゲーム終了処理
         } else {
             // 再度QRコードのスキャンを可能にする
+            
             isQRCodeVisible = false
             detectedQRCodeType = nil
             initializeGameArray() // ゲーム配列を再初期化
         }
     }
-    
+    */
     func checkForGameEnd() {
         if exterminatedCount >= 5 {
+            sendToUnity(sendnum: exterminatedCount)
             endGame(isGameClear: true) // 退治数が5以上の場合はゲームクリア
         } else if remainingTime <= 0 {
+            sendToUnity(sendnum: exterminatedCount)
             endGame(isGameClear: false)// 時間切れの場合はゲームオーバー
-            sendToUnity(sendnum: -8)
         }
+        sendToUnity(sendnum: exterminatedCount)
     }
+    
 
     
     func endGame(isGameClear: Bool) {
@@ -541,9 +612,12 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     func startDummyMode() {
         isDummyMode = true
-        lightImageView.isHidden = true
+        dummyImageView.isHidden = true
+        currentQRCodeImageView.isHidden = true
         hideQRCodeImage()
-        
+        showQRCodeImage(image: lightImageView.image!)
+        view.bringSubviewToFront(lightImageView)
+
         // vacuum_dummyの動画を準備
         if let videoURL = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") {
             player = AVPlayer(url: videoURL)
@@ -591,7 +665,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         view.isUserInteractionEnabled = true
         detectedQRCodeType = nil
+        currentQRCodeImageView.isHidden = true
+        ghostImageView.isHidden = true
+        dummyImageView.isHidden = true
         lightImageView.isHidden = false
+        view.bringSubviewToFront(lightImageView)
         print("ダミーモードが終了しました")
     }
     

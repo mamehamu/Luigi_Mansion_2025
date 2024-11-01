@@ -103,12 +103,9 @@ class TCPClient {
         }
         
     }
-}
-/*
     func stop() {
-
+        
         connection?.cancel()
-
+        
     }
-
-*/
+}

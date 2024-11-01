@@ -6,211 +6,42 @@
 //
 
 import UIKit
-import AVFoundation
-
-class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
-
-    var hasSentData = false
-
-    var isDebugMode = false
-    var captureSession: AVCaptureSession!
-    var previewLayer: AVCaptureVideoPreviewLayer!
-    var isSuctionMode = false
-    var ghostImageView: UIImageView!
-    public let client = TCPClient(host: "10.202.253.246", port: 8080)
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        setupCamera()
-        setupGhostImageView()
-        startConnection()
-        sendToUnity(sendnum: -1)
-        view.backgroundColor = .black
-    }
-/*
-    func sendToUnity(sendnum: Int) {
-        client.send(data: String(sendnum).data(using: .utf8)!)
-        
-    }
-  */
-    func sendToUnity(sendnum: Int) {
-        guard !hasSentData else { return }  // 既に送信済みの場合は処理をスキップ
-        
-        let data = String(sendnum).data(using: .utf8)!
-        do {
-            try client.start(data: data)
-            print("Data sent successfully: \(sendnum)")
-            hasSentData = true  // 送信フラグを設定
-        } catch {
-            print("Failed to send data: \(error.localizedDescription)")
-        }
-    }
-    
-    
-    
-    
-    func startConnection() {
-        /*
-        do {
-            try client.start()
-               print("TCP Connection started successfully.")
-           } catch {
-               print("Failed to start TCP connection: \(error.localizedDescription)")
-                     
-                     }
-*/
-    }
-    
-    
-    func setupCamera() {
-        captureSession = AVCaptureSession()
-
-        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else { return }
-        let videoInput: AVCaptureDeviceInput
-
-        do {
-            videoInput = try AVCaptureDeviceInput(device: videoCaptureDevice)
-        } catch {
-            print("Error setting up video input: \(error)")
-            return
-        }
-
-        if captureSession.canAddInput(videoInput) {
-            captureSession.addInput(videoInput)
-        } else {
-            print("Could not add video input to capture session")
-            return
-        }
-
-        let metadataOutput = AVCaptureMetadataOutput()
-
-        if captureSession.canAddOutput(metadataOutput) {
-            captureSession.addOutput(metadataOutput)
-
-            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-            metadataOutput.metadataObjectTypes = [.qr]
-        } else {
-            print("Could not add metadata output to capture session")
-            return
-        }
-
-        // カメラのプレビュー設定
-        let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.frame = view.layer.bounds
-        previewLayer.videoGravity = .resizeAspectFill  // 映像を画面にフィットさせる
-
-        // カメラの向きを横画面に設定
-        if let connection = previewLayer.connection {
-            if connection.isVideoOrientationSupported {
-                connection.videoOrientation = .landscapeRight  // 横向きの向きに合わせる
-            }
-        }
-
-        // カメラプレビューを表示
-        view.layer.addSublayer(previewLayer)
-
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.captureSession.startRunning() // ここをバックグラウンドスレッドで実行
-        }
-    }
-
-    func setupGhostImageView() {
-        ghostImageView = UIImageView(image: UIImage(named: "ghost"))
-        ghostImageView.contentMode = .scaleAspectFit
-        ghostImageView.frame = CGRect(x: (view.bounds.width - 300) / 2,
-                                      y: (view.bounds.height - 300) / 2,
-                                      width: 300,
-                                      height: 300)
-        ghostImageView.isHidden = true
-        view.addSubview(ghostImageView)
-    }
-
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        if isSuctionMode {
-            // 吸い込みモード中は新しいスキャンを無視
-            return
-        }
-
-        if let metadataObject = metadataObjects.first {
-            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
-                  let stringValue = readableObject.stringValue else { return }
-
-            if stringValue == "marker_tutorial" {
-                // スキャン停止
-                captureSession.stopRunning()
-                isSuctionMode = true
-                enterSuctionMode()
-            }
-        }
-    }
-
-    func enterSuctionMode() {
-        // おばけを表示
-        ghostImageView.isHidden = false
-
-        // 吸い込みアニメーション
-        UIView.animate(withDuration: 3.0, animations: {
-            self.ghostImageView.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
-            self.ghostImageView.alpha = 0
-        }) { _ in
-            self.ghostImageView.removeFromSuperview()
-            self.waitForTouchToStartGame()
-        }
-    }
-
-    func waitForTouchToStartGame() {
-        // タップ待機のメッセージ表示
-        let tapToStartLabel = UILabel()
-        tapToStartLabel.text = "タッチしてゲームを始める"
-        tapToStartLabel.font = UIFont.systemFont(ofSize: 24)
-        tapToStartLabel.textColor = .white
-        tapToStartLabel.textAlignment = .center
-        tapToStartLabel.frame = view.bounds
-        view.addSubview(tapToStartLabel)
-
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(startMainGame))
-        view.addGestureRecognizer(tapGesture)
-    }
-
-    @objc func startMainGame() {
-        let gameVC = GameViewController()
-        gameVC.isDebugMode = isDebugMode
-        gameVC.modalPresentationStyle = .fullScreen
-        present(gameVC, animated: true, completion: nil)
-    }
-}
-
-/*
-import UIKit
 import AVKit
 import AVFoundation
 import CoreMotion
 import MediaPlayer
 
-class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+class TutorialViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     
     var isQRCodeDetected = false
     
     var captureSession: AVCaptureSession!
     var previewLayer: AVCaptureVideoPreviewLayer!
     
+    var isQRCodeVisible: Bool = false
+    var qrCodeLostTimer: Timer?
+    
+    var isSuctionMode = false
+    
+    var hasSentData = false
+    
     var isDebugMode = false
-    var isQRCodeVisible: Bool = false// QRコードが見えているかのフラグ
-    var qrCodeLostTimer: Timer? // QRコードが見えなくなった時のタイマー
-    var isSuctionMode = false // 吸い取りモードかどうかのフラグ
-    var detectedQRCodeType: String?
-        
-    var qrCodestring: String?
+    
+    var tutorial_flag = false //吸い取りが完了したらtrue
+  
+    var start_flag = false
+    
     var initialVolume: Float = 0.5
     let audioSession = AVAudioSession.sharedInstance()
     
-    var captureSession: AVCaptureSession!
+    var detectedQRCodeType: String? //
     
-    var previewLayer: AVCaptureVideoPreviewLayer!
     public let client = TCPClient(host: "10.202.253.246", port: 8080)
-
+    
+    var suctionDuration: TimeInterval = 10.0
+    
     let motionManager = CMMotionManager()
+    var qrCodeNumber: Int? //不要かも
     
     var player: AVPlayer!
     var playerLayer: AVPlayerLayer?
@@ -218,10 +49,13 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     var ghostImageView: UIImageView!
     var lightImageView: UIImageView!
+    var currentQRCodeImageView: UIImageView!
     
     var lastShakeTime: TimeInterval = 0
-    let shakeThreshold: Double = 1.3 //加速度のしきい値
-    let cooldownPeriod: TimeInterval = 0.5
+    let shakeThreshold: Double = 1.10 //加速度のしきい値
+    let cooldownPeriod: TimeInterval = 0.75
+    
+    var tapGesture: UITapGestureRecognizer?
     
     
     override func viewDidLoad() {
@@ -229,30 +63,125 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         setupCamera()
         setupImageViews()
         setupTouchGesture()
-        
+        prepareVideos()
+        setupCustomVolumeView()
         view.backgroundColor = .black
-        preloadVideo(named: "vacuum.mp4")
-        startConnection()
-        sendToUnity(sendnum: -1)
-
         lightImageView.isHidden = false
-    }
-/*
-    func sendToUnity(sendnum: Int) {
-        client.send(data: String(sendnum).data(using: .utf8)!)
+        
+        initialVolume = audioSession.outputVolume
+        setSystemVolume(initialVolume)
+        setupVolumeButtonHandler()
+        sendToUnity(sendnum: -1)
         
     }
-  */
+    /*
+     func sendToUnity(sendnum: Int) {
+     client.send(data: String(sendnum).data(using: .utf8)!)
+     
+     }
+     */
+     
+     func setupCustomVolumeView() {
+         let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
+         volumeView.isHidden = true  // 標準の音量ビューを非表示に
+         self.view.addSubview(volumeView)
+     }
+     
+    // 音量変更があった時に呼ばれる関数
+    @objc func volumeDidChange(notification: NSNotification) {
+        // 音量を元の値に戻す
+        setSystemVolume(initialVolume)
+    }
+
+    // 音量をプログラム的に設定する
+    func setSystemVolume(_ volume: Float) {
+        let volumeView = MPVolumeView()
+        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
+            slider.value = volume
+        }
+    }
+    
+    func prepareVideos() {
+        guard let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") else { return }
+        let playerItem = AVPlayerItem(url: videoURL)
+        playerItem.preferredForwardBufferDuration = 1.0
+        player = AVPlayer(playerItem: playerItem)
+    }
+    
+    func preloadVideo(named videoName: String) {
+        // 動画ファイルのURLを取得
+        if let videoPath = Bundle.main.path(forResource: videoName, ofType: nil) {
+            let videoURL = URL(fileURLWithPath: videoPath)
+            let asset = AVAsset(url: videoURL)
+            let playerItem = AVPlayerItem(asset: asset)
+            
+            // 動画を再生する準備をする
+            player = AVPlayer(playerItem: playerItem)
+            playerLayer = AVPlayerLayer(player: player)
+            playerLayer?.frame = self.view.bounds
+            self.view.layer.addSublayer(playerLayer!)
+            
+            // 再生前にプレイヤーを一時停止して準備させる
+            player?.pause()
+        }
+    }
+    
+    
+    
+    deinit {
+        // 音量変更の通知を解除
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
+    }
+    
+    func setupImageViews() {
+        
+        // light.png の UIImageView を作成
+        lightImageView = UIImageView(image: UIImage(named: "light"))
+        lightImageView.contentMode = .scaleAspectFill
+        lightImageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(lightImageView)
+        
+        // Ghost ImageView の設定
+        ghostImageView = UIImageView(image: UIImage(named: "ghost"))
+        ghostImageView.contentMode = .scaleAspectFill
+        ghostImageView.frame = view.bounds
+        ghostImageView.isHidden = true
+        view.addSubview(ghostImageView)
+        
+        // 現在のQRコードの画像ビュー（ghostかdummyが表示される）
+        currentQRCodeImageView = UIImageView()
+        currentQRCodeImageView.contentMode = .scaleAspectFill
+        currentQRCodeImageView.frame = view.bounds
+        currentQRCodeImageView.isHidden = true
+        view.addSubview(currentQRCodeImageView)
+        
+        NSLayoutConstraint.activate([
+                    lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    lightImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+                    lightImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+                    lightImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
+                    
+                    ghostImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    ghostImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+                    ghostImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+                    ghostImageView.heightAnchor.constraint(equalTo: view.heightAnchor)
+                ])
+    }
+    
+    
     func sendToUnity(sendnum: Int) {
-        guard !hasSentData else { return }  // 既に送信済みの場合は処理をスキップ
+        guard !hasSentData else {
+            print("Data already sent, skipping for value: \(sendnum)")
+            return
+        }
         
         let data = String(sendnum).data(using: .utf8)!
         do {
-            try client.start(data: data)
-            print("Data sent successfully: \(sendnum)")
-            hasSentData = true  // 送信フラグを設定
+            client.start(data: data)
+            print("Data sent successfully with value: \(sendnum)")
+
         } catch {
-            print("Failed to send data: \(error.localizedDescription)")
+            print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
         }
     }
     
@@ -268,28 +197,69 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         }
     }
     
-    func preloadVideo(named videoName: String) {
-         // 動画ファイルのURLを取得
-         if let videoPath = Bundle.main.path(forResource: videoName, ofType: nil) {
-             let videoURL = URL(fileURLWithPath: videoPath)
-             let asset = AVAsset(url: videoURL)
-             let playerItem = AVPlayerItem(asset: asset)
-             
-             // 動画を再生する準備をする
-             player = AVPlayer(playerItem: playerItem)
-             playerLayer = AVPlayerLayer(player: player)
-             playerLayer?.frame = self.view.bounds
-             self.view.layer.addSublayer(playerLayer!)
-             
-             // 再生前にプレイヤーを一時停止して準備させる
-             player?.pause()
+    func setupVolumeButtonHandler() {
+        let volumeView = MPVolumeView(frame: .zero)
+        view.addSubview(volumeView)
+        
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setActive(true)
+        } catch {
+            print("Failed to activate audio session")
+        }
+
+        audioSession.addObserver(self, forKeyPath: "outputVolume", options: [.old, .new], context: nil)
+    }
+   
+    
+    func setupTouchGesture() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap))
+        view.addGestureRecognizer(tapGesture)
+    }
+    
+    @objc func handleScreenTap() {
+        if isSuctionMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
+            return
+        }//吸い取りモード中やQRコードがない場合は無視
+        if detectedQRCodeType == "ghost" {
+            print("画面がタッチされ、吸い込みモードに移行します")
+            startSuctionMode()
+        }
+    }
+    
+    func handleRemoteButtonPress() {
+        if isSuctionMode || (player?.rate ?? 0.0) > 0.0 {
+            return
+        }
+        if detectedQRCodeType == "ghost" {
+            print("リモコンのボタンが押され、吸い込みモードに移行します")
+            startSuctionMode()
+        }
+        if tutorial_flag == true && start_flag == false {
+            print("リモコンが押された!!!のでチュートリアル完!!")
+            handleTapAndDelayStart()
+        }
+    }
+    
+    
+    
+    func startConnection() {
+        /*
+         do {
+         try client.start()
+         print("TCP Connection started successfully.")
+         } catch {
+         print("Failed to start TCP connection: \(error.localizedDescription)")
+         
          }
-     }
+         */
+    }
+    
     
     func setupCamera() {
         captureSession = AVCaptureSession()
         
-        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else { return }
+        guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else { return }
         let videoInput: AVCaptureDeviceInput
         
         do {
@@ -317,75 +287,101 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             print("Could not add metadata output to capture session")
             return
         }
-
+        
+        // カメラのプレビュー設定
+        let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+        previewLayer.frame = view.layer.bounds
+        previewLayer.videoGravity = .resizeAspectFill  // 映像を画面にフィットさせる
+        
+        // カメラの向きを横画面に設定
+        if let connection = previewLayer.connection {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .landscapeRight  // 横向きの向きに合わせる
+            }
+        }
+        
+        // カメラプレビューを表示
+        view.layer.addSublayer(previewLayer)
+        
+        
         DispatchQueue.global(qos: .userInitiated).async {
-         self.captureSession.startRunning() // ここをバックグラウンドスレッドで実行
-         }
+            self.captureSession.startRunning() // ここをバックグラウンドスレッドで実行
+        }
+    }
+    
+    func setupGhostImageView() {
+        ghostImageView = UIImageView(image: UIImage(named: "ghost"))
+        ghostImageView.contentMode = .scaleAspectFit
+        ghostImageView.frame = CGRect(x: (view.bounds.width - 300) / 2,
+                                      y: (view.bounds.height - 300) / 2,
+                                      width: 300,
+                                      height: 300)
+        ghostImageView.isHidden = true
+        view.addSubview(ghostImageView)
+    }
+    
+    /*
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        if isSuctionMode {
+            // 吸い込みモード中は新しいスキャンを無視
+            return
+        }
+        
+        if let metadataObject = metadataObjects.first {
+            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
+                  let stringValue = readableObject.stringValue else { return }
+            
+            if stringValue == "marker_tutorial" {
+                // スキャン停止
+                captureSession.stopRunning()
+                isSuctionMode = true
+                startSuctionMode()
+            }
+        }
+    }
+     */
+    
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        // 吸い取りモード中、ダミー操作中はQRコードの処理をしない
+        if isSuctionMode { return }
+        
+        if let metadataObject = metadataObjects.first {
+            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
+                  let stringValue = readableObject.stringValue,
+                  stringValue == "marker_tutorial" else {
+                handleQRCodeLost()
+                return
+            }
+            AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+            detectedQRCodeType = "ghost"
+            lightImageView.isHidden = true
+            
+            // QRコードが読み取れたので、処理を実行
+            handleQRCodeDetected(qrCodeNumber: stringValue)
+            
+        } else {
+            handleQRCodeLost()
+            lightImageView.isHidden = false
+        }
     }
 
-    func setupImageViews() {
-          // Ghost ImageView の設定
-          ghostImageView = UIImageView(image: UIImage(named: "ghost"))
-          ghostImageView.contentMode = .scaleAspectFill
-          ghostImageView.frame = view.bounds
-          ghostImageView.isHidden = true
-          view.addSubview(ghostImageView)
-          
-          // light.png の UIImageView を作成
-          lightImageView = UIImageView(image: UIImage(named: "light"))
-          lightImageView.contentMode = .scaleAspectFit
-          lightImageView.translatesAutoresizingMaskIntoConstraints = false
-          view.addSubview(lightImageView)
-          
-          NSLayoutConstraint.activate([
-                      lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                      lightImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                      lightImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                      lightImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
-                      
-                      ghostImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                      ghostImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                      ghostImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                      ghostImageView.heightAnchor.constraint(equalTo: view.heightAnchor)
-                  ])
-      }
     
-    func setupTouchGesture() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap))
-        view.addGestureRecognizer(tapGesture)
-    }
-    
-    @objc func handleScreenTap() {
-        if isSuctionMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
-            return
-        }//吸い取りモード中やQRコードがない場合は無視
-        if let qrCodestring = self.qrCodestring, detectedQRCodeType == "ghost" {
-            print("画面がタッチされ、吸い込みモードに移行します")
-            startSuctionMode()
+    func handleQRCodeDetected(qrCodeNumber: String) {
+        lightImageView.isHidden = true
+        // QRコードが検出された時の処理
+        if !isQRCodeVisible {
+            isQRCodeVisible = true
+            print("QRコードが見えています: \(qrCodeNumber)")
         }
-    }
-    
-    func handleRemoteButtonPress() {
-           if isSuctionMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
-               return
-           }
-        if let qrCodestring = self.qrCodestring, detectedQRCodeType == "ghost" {
-            print("リモコンのボタンが押され、吸い込みモードに移行します")
-            startSuctionMode()
-        }
-    }
-    
-    
-    func startConnection() {
-        /*
-        do {
-            try client.start()
-               print("TCP Connection started successfully.")
-           } catch {
-               print("Failed to start TCP connection: \(error.localizedDescription)")
-                     
-                     }
-*/
+        showQRCodeImage(image: ghostImageView.image!)
+        view.bringSubviewToFront(ghostImageView)
+        lightImageView.isHidden = true
+        
+        currentQRCodeImageView.isHidden = false
+        ghostImageView.isHidden = false
+        // QRコードを見失った際のタイマーを無効化（見えている間はリセット）
+        qrCodeLostTimer?.invalidate()
+        qrCodeLostTimer = nil
     }
     
     func handleQRCodeLost() {
@@ -397,178 +393,20 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                     self?.detectedQRCodeType = nil
                     print("QRコードが消えました")
                     self?.hideQRCodeImage() // QRコードが消えたら画像も非表示にする
+                    self?.lightImageView.isHidden = false
+                    self?.ghostImageView.isHidden = true
+                    self?.currentQRCodeImageView.isHidden = true
                 }
             }
         }
     }
     
     
-    func showQRCodeImage(image: UIImage) {
-        ghostImageView.image = image
-        ghostImageView.isHidden = false
-        lightImageView.isHidden = true
-        
-    }
-    
-    func hideQRCodeImage(){
-        ghostImageView.isHidden = true
-        ghostImageView.image = nil
-        lightImageView.isHidden = false
-    }
-    
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        // 吸い取りモード中、ダミー操作中はQRコードの処理をしない
-        if isSuctionMode { return }
-        
-        if let metadataObject = metadataObjects.first {
-            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
-                  let stringValue = readableObject.stringValue,
-                  let qrCodeNumber = Int(stringValue) else {
-                handleQRCodeLost()
-                return
-            }
-            AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
-            lightImageView.isHidden = true
-            
-            // QRコードが読み取れたので、処理を実行
-            handleQRCodeDetected(qrCodeNumber: qrCodeNumber)
-        } else {
-            handleQRCodeLost()
-            lightImageView.isHidden = false
-        }
-    }
-    
-    func handleQRCodeDetected(qrCodeNumber: Int) {
-        self.qrCodestring = "\(qrCodeNumber)"
-        
-        if !isQRCodeVisible {
-            isQRCodeVisible = true
-            print("QRコードが見えています: \(qrCodeNumber)")
-        }
-        
-        // QRコードに対応する処理（ghostかdummyかの判定）
-        if qrCodeNumber >= 0 && qrCodeNumber < gameArray.count {
-            let qrCodeType = gameArray[qrCodeNumber]
-            
-            if qrCodeType == "ghost" {
-                detectedQRCodeType = "ghost"
-                print("QRコードがghostです。画面タッチで吸い込みモードに移行できます")
-                showQRCodeImage(image: ghostImageView.image!)
-                
-            }
-        }
-    }
-        // QRコードを見失った際のタイマーを無効化（見えている間はリセット）
-        qrCodeLostTimer?.invalidate()
-        qrCodeLostTimer = nil
-    }
-    
-    
-    
-    
-    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        if isSuctionMode {
-            // 吸い込みモード中は新しいスキャンを無視
-            return
-        }
-
-        if let metadataObject = metadataObjects.first {
-            guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
-                  let stringValue = readableObject.stringValue else { return }
-
-            if stringValue == "marker_tutorial" {
-                // スキャン停止
-                captureSession.stopRunning()
-                isSuctionMode = true
-                enterSuctionMode()
-            }
-        }
-    }
-
-    func startSuctionMode() {
-        isSuctionMode = true
-        hideQRCodeImage()
-    
-    // プレースホルダー画像を表示
-        let placeholderImageView = UIImageView(image: UIImage(named: "placeholder"))
-        placeholderImageView.frame = self.view.bounds
-        placeholderImageView.contentMode = .scaleAspectFill
-        self.view.addSubview(placeholderImageView)
-    
-    // 動画の準備を開始
-        if let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") {
-            player = AVPlayer(url: videoURL)
-            playerViewController = AVPlayerViewController()
-            playerViewController.player = player
-            playerViewController.videoGravity = .resizeAspectFill
-        
-        // 動画を画面いっぱいに表示
-            playerViewController.view.frame = self.view.bounds
-            self.view.addSubview(playerViewController.view)
-        
-        // タッチをブロックする透明なビューを追加
-            let touchBlockerView = UIView(frame: self.view.bounds)
-            touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
-            self.view.addSubview(touchBlockerView)
-        
-        // 動画の準備が完了しているか確認
-            player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
-        
-        // 動画再生終了時に吸い込みモードを終了
-            if let currentItem = player.currentItem {
-                NotificationCenter.default.addObserver(self, selector: #selector(endSuctionMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
-            }
-        } else {
-            print("vacuum.mp4 の動画ファイルが見つかりませんでした。")
-        }
-    
-    // プレースホルダーの削除を行う
-        DispatchQueue.main.async {
-            placeholderImageView.removeFromSuperview()
-        }
-    
-    // 加速度センサーを使ってデバイスの揺れを検知
-        motionManager.startAccelerometerUpdates(to: OperationQueue.current!) { [weak self] (data, error) in
-            guard let self = self, let data = data, error == nil else { return }
-            let acceleration = sqrt(pow(data.acceleration.x, 2) + pow(data.acceleration.y, 2) + pow(data.acceleration.z, 2))
-        
-            let currentTime = Date().timeIntervalSince1970
-            if acceleration > self.shakeThreshold && (currentTime - self.lastShakeTime) > self.cooldownPeriod {
-                print("デバイスが揺れました！動画の再生速度を倍速します。")
-                self.increasePlaybackSpeed()
-                self.lastShakeTime = currentTime // 最後の揺れ時間を更新
-            }
-        }
-    }
-
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-        if keyPath == "status" {
-            if let player = player, player.status == .readyToPlay {
-            // 動画の準備が完了したので再生
-                player.play()
-            } else if let player = player, player.status == .failed {
-                print("動画の準備に失敗しました: \(player.error?.localizedDescription ?? "不明なエラー")")
-            }
-        }
-    }
-
-// 動画の再生速度を変更する
-    func increasePlaybackSpeed() {
-        guard let player = player else { return }
-    
-    // 現在の速度から1.5倍にゆっくり変更
-        let currentRate = player.rate
-        if currentRate < 3.0{
-            player.rate = min(currentRate + 0.5, 3.0)
-        }
-    }
-
-
-
+    /*
     func enterSuctionMode() {
         // おばけを表示
         ghostImageView.isHidden = false
-
+        
         // 吸い込みアニメーション
         UIView.animate(withDuration: 3.0, animations: {
             self.ghostImageView.transform = CGAffineTransform(scaleX: 0.1, y: 0.1)
@@ -578,7 +416,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             self.waitForTouchToStartGame()
         }
     }
-
+    */
     func waitForTouchToStartGame() {
         // タップ待機のメッセージ表示
         let tapToStartLabel = UILabel()
@@ -588,16 +426,165 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         tapToStartLabel.textAlignment = .center
         tapToStartLabel.frame = view.bounds
         view.addSubview(tapToStartLabel)
-
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(startMainGame))
-        view.addGestureRecognizer(tapGesture)
+        
+        tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapAndDelayStart))
+        if let tapGesture = tapGesture {
+            view.addGestureRecognizer(tapGesture)
+        }
     }
-
+    
+    @objc func handleTapAndDelayStart() {
+        start_flag = true
+        // タップされたときに sendToUnity を呼び出して -4 を送信
+        sendToUnity(sendnum: -4)
+        
+        // タップジェスチャーを無効化して、複数回押されるのを防止
+        if let tapGesture = tapGesture {
+            view.removeGestureRecognizer(tapGesture)
+            self.tapGesture = nil
+        }
+        
+        // 3秒の遅延を入れてゲームをスタート
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            self.startMainGame()
+        }
+    }
+    
+    
     @objc func startMainGame() {
         let gameVC = GameViewController()
         gameVC.isDebugMode = isDebugMode
         gameVC.modalPresentationStyle = .fullScreen
         present(gameVC, animated: true, completion: nil)
     }
+    
+    func startSuctionMode() {
+        sendToUnity(sendnum: -2)
+        isSuctionMode = true
+        hideQRCodeImage()
+        
+        // プレースホルダー画像を表示
+        let placeholderImageView = UIImageView(image: UIImage(named: "placeholder"))
+        placeholderImageView.frame = self.view.bounds
+        placeholderImageView.contentMode = .scaleAspectFill
+        self.view.addSubview(placeholderImageView)
+        
+        // 動画の準備を開始
+        if let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") {
+            player = AVPlayer(url: videoURL)
+            playerViewController = AVPlayerViewController()
+            playerViewController.player = player
+            playerViewController.videoGravity = .resizeAspectFill
+            
+            // 動画を画面いっぱいに表示
+            playerViewController.view.frame = self.view.bounds
+            self.view.addSubview(playerViewController.view)
+            
+            // タッチをブロックする透明なビューを追加
+            let touchBlockerView = UIView(frame: self.view.bounds)
+            touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
+            self.view.addSubview(touchBlockerView)
+            
+            // 動画の準備が完了しているか確認
+            player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
+            
+            // 動画再生終了時に吸い込みモードを終了
+            if let currentItem = player.currentItem {
+                NotificationCenter.default.addObserver(self, selector: #selector(endSuctionMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
+            }
+        } else {
+            print("vacuum.mp4 の動画ファイルが見つかりませんでした。")
+        }
+        
+        // プレースホルダーの削除を行う
+        DispatchQueue.main.async {
+            placeholderImageView.removeFromSuperview()
+        }
+        
+        // 加速度センサーを使ってデバイスの揺れを検知
+        motionManager.startAccelerometerUpdates(to: OperationQueue.current!) { [weak self] (data, error) in
+            guard let self = self, let data = data, error == nil else { return }
+            let acceleration = sqrt(pow(data.acceleration.x, 2) + pow(data.acceleration.y, 2) + pow(data.acceleration.z, 2))
+            
+            let currentTime = Date().timeIntervalSince1970
+            if acceleration > self.shakeThreshold && (currentTime - self.lastShakeTime) > self.cooldownPeriod {
+                print("デバイスが揺れました！動画の再生速度を倍速します。")
+                self.increasePlaybackSpeed()
+                self.lastShakeTime = currentTime // 最後の揺れ時間を更新
+            }
+        }
+    }
+    
+    func showQRCodeImage(image: UIImage) {
+        print("showQRCodeImage: 画像が表示されます")
+
+        currentQRCodeImageView.image = image
+        currentQRCodeImageView.isHidden = false
+        lightImageView.isHidden = true
+    }
+    
+    func hideQRCodeImage(){
+        currentQRCodeImageView.isHidden = true
+        currentQRCodeImageView.image = nil
+        lightImageView.isHidden = false
+    }
+    
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        
+        if keyPath == "outputVolume" {
+            handleRemoteButtonPress() // 音量ボタンをリモコンボタンと同様に扱う
+        }
+        
+        if keyPath == "status" {
+            if let player = player, player.status == .readyToPlay {
+                // 動画の準備が完了したので再生
+                player.play()
+            } else if let player = player, player.status == .failed {
+                print("動画の準備に失敗しました: \(player.error?.localizedDescription ?? "不明なエラー")")
+            }
+        }
+    }
+    
+    // 動画の再生速度を変更する
+    func increasePlaybackSpeed() {
+        guard let player = player else { return }
+        
+        // 現在の速度から1.5倍にゆっくり変更
+        let currentRate = player.rate
+        if currentRate < 5.0{
+            player.rate = min(currentRate + 0.5, 5.0)
+        }
+    }
+    
+    
+    
+    @objc func endSuctionMode(qrCodeNumber : Int) {
+        tutorial_flag = true
+        sendToUnity(sendnum: -3)
+        isSuctionMode = false
+        
+        ghostImageView.isHidden = true
+        currentQRCodeImageView.isHidden = true
+        lightImageView.isHidden = false
+        showQRCodeImage(image: lightImageView.image!)
+        view.bringSubviewToFront(lightImageView)
+        
+        print("吸い込みモードが終了しました")
+        
+        player.pause()
+        
+        
+        // 動画表示の削除
+        playerViewController.view.removeFromSuperview()
+        
+        // モーションデータの取得を停止
+        motionManager.stopAccelerometerUpdates()
+        
+        
+        detectedQRCodeType = nil
+        waitForTouchToStartGame()
+        
+    }
+    
+    
 }
- */
