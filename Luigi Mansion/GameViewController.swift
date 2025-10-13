@@ -756,3 +756,5 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         player.play()
     }
 }
+
+// Dの遺志を継ぐもの、参上！
