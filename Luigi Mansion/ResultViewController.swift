@@ -9,8 +9,8 @@ import UIKit
 
 class ResultViewController: UIViewController {
     /*
-    public let client = TCPClient(host: "10.202.253.246", port: 8080)
-    */
+     public let client = TCPClient(host: "10.202.253.246", port: 8080)
+     */
     
     var hasSentData = false
     
@@ -24,8 +24,7 @@ class ResultViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .white
         
-        let data = "-10".data(using: .utf8)!
-        TCPClient.shared.start(data: data)
+        TCPClient.shared.send(message: "-10")
         
         let resultLabel = UILabel(frame: CGRect(x: 0, y: 100, width: view.bounds.width, height: 50))
         resultLabel.textAlignment = .center
@@ -39,50 +38,26 @@ class ResultViewController: UIViewController {
         }
         view.addSubview(resultLabel)
         
-        // 退治数と残り時間のラベルを表示
-        let detailLabel = UILabel(frame: CGRect(x: 0, y: 150, width: view.bounds.width, height: 50))
-        detailLabel.textAlignment = .center
-        detailLabel.font = UIFont.systemFont(ofSize: 20)
-        detailLabel.text = "退治数: \(exterminatedCount), 残り時間: \(remainingTime)秒"
-        view.addSubview(detailLabel)
-        
         // 一定時間後にチュートリアルモードに戻る
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
             
-            self.resetGame()
             self.returnToTutorial()
         }
     }
     
     func returnToTutorial() {
-        let tutorialVC = TutorialViewController()
-        tutorialVC.modalPresentationStyle = .fullScreen
-        present(tutorialVC, animated: true, completion: nil)
-    }
-    /*
-    func sendToUnity(sendnum: Int) {
-        guard !hasSentData else {
-            print("Data already sent, skipping for value: \(sendnum)")
-            return
+        // 画面スタックをリセットしてチュートリアルに戻る
+        // (GameVC -> ResultVC と来ているので、presentingViewController を dismiss する)
+                
+        // もし StartVC -> TutorialVC -> GameVC -> ResultVC のように重ねている場合
+        if let presentingVC = self.presentingViewController?.presentingViewController {
+            presentingVC.dismiss(animated: true, completion: nil)
+            // これにより TutorialVC に戻る
+        } else {
+            // フォールバック (StartVC に戻るなど)
+            let startVC = StartViewController()
+            startVC.modalPresentationStyle = .fullScreen
+            present(startVC, animated: true, completion: nil)
         }
-        
-        let data = String(sendnum).data(using: .utf8)!
-        do {
-
-
-            print("Data sent successfully with value: \(sendnum)")
-        } catch {
-            print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
-        }
-    }
-    */
-    func resetGame() {
-        // 退治数、タイマー、QRコード配列などゲームの状態をリセット
-        exterminatedCount = 0
-        remainingTime = 180 // 3分にリセット
-        
-        // QRコードの配列をリセットし、シャッフル
-        let gameVC = GameViewController()
-        gameVC.gameArray = ["dummy", "dummy", "ghost", "ghost", "ghost", "ghost", "ghost"].shuffled()
     }
 }

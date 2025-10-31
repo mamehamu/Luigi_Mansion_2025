@@ -7,9 +7,8 @@
 
 import UIKit
 import AVKit
-import AVFoundation
+import AVFoundation // ▽▽▽ [NEW FLOW] サウンド再生のために追加 ▽▽▽
 import CoreMotion
-import MediaPlayer
 
 class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     
@@ -23,37 +22,50 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     var isDebugMode = false
     var isQRCodeVisible: Bool = false// QRコードが見えているかのフラグ
     var qrCodeLostTimer: Timer? // QRコードが見えなくなった時のタイマー
-    var isDummyMode: Bool = false // ダミーQRコードが読み取られたかどうかのフラグ
+    var isDummyMode: Bool = false // ダミーQRコードが読み取られたかどうかのフラG
     var isSuctionMode = false // 吸い取りモードかどうかのフラグ
+
+    var detectedQRCodeType: String? // 読み取られたQRコードのタイプ
     
-    var initialVolume: Float = 0.5
-    let audioSession = AVAudioSession.sharedInstance()
-    
+    var exterminatedCount = 0
     /*
-    public let client = TCPClient(host: "10.202.253.246" ,port: 8080)
-    */
-    var detectedQRCodeType: String? // 読み取られたQRコードのタイプ ("ghost" か "dummy")
-    let maxExterminationCount = 5
-    var exterminatedCount = 0 {
-        didSet {
-            updateDebugLabels()
-            checkForGameEnd() // 退治数が増えるたびにゲーム終了判定を行う
-        }
-    }
-    var remainingTime: Int = 180 // 3分
+    var remainingTime: Int = 270 // 4分30秒
     var gameTimer: Timer?
-    var suctionDuration: TimeInterval = 10.0
+    */
     let motionManager = CMMotionManager()
     var qrCodeNumber: Int?
+    var currentSuctionScore: Int = 0
     
     var player: AVPlayer!
     var playerLayer: AVPlayerLayer?
     var playerViewController: AVPlayerViewController!
+
+    // ▽▽▽ [NEW FLOW] UI要素をステータス表示用に統一 ▽▽▽
+    var statusImageView: UIImageView! // 以前の cartridgeLightImageView
+    var currentQRCodeImageView: UIImageView! // おばけ(normal, rea, cannot)表示用
+    //var cartridgeLightImageView: UIImageView! // カートリッジ状態ライト表示用
     
-    var ghostImageView: UIImageView!
-    var dummyImageView: UIImageView!
-    var lightImageView: UIImageView!
-    var currentQRCodeImageView: UIImageView!
+    // ▽▽▽ 新しいフラグとタイマー ▽▽▽
+    var canStartSuction = false
+    var suctionTimer: Timer?
+    //var isGameStarted = false // タイマーが作動中か
+    var isConnectionEstablished = false // PCとの接続が確立したか
+    var isWaitingForFinish = false // Game_Clear/Over後、"Connection_Finished" を待機中
+    var isBossScan = false // ボスQRスキャン中かどうか
+    
+    // ▽▽▽ [NEW FLOW] プリロード用画像 ▽▽▽
+    var scanCHImage: UIImage?
+    var scan10Image: UIImage?
+    var scan25Image: UIImage?
+    var scan77Image: UIImage?
+    var scanNullImage: UIImage? // ▽▽▽ [FIX-1, 2] 追加 ▽▽▽
+    var normalGhostImage: UIImage?
+    var reaGhostImage: UIImage?
+    var cannotGhostImage: UIImage?
+    var bossGhostImage: UIImage?
+
+    // ▽▽▽ [NEW FLOW] サウンドプレーヤー ▽▽▽
+    var audioPlayer: AVAudioPlayer?
     
     var debugGhostCountLabel: UILabel?
     var debugRemainingTimeLabel: UILabel?
@@ -62,82 +74,459 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     let shakeThreshold: Double = 1.10 //加速度のしきい値
     let cooldownPeriod: TimeInterval = 0.75 //次の振動を感知するまでのクールダウン
     
+    // gameScores: 各QRに対応するスコアを保持する配列 (長さ10)
+    // 0 = 既に吸い取られた / 存在しない
+    // 正の値 = 10 / 25 / 77
+    var gameScores: [Int] = []
+
+    // カートリッジ (大きさ4、nilは空)
+    var cartridge: [Int?] = [nil, nil, nil, nil]
+    var selectedCartridgeIndex: Int = 0 // TCPで操作される現在選択中のカートリッジ (0-3)
     
-    var gameArray: [String] = ["ghost", "ghost", "ghost", "ghost", "ghost", "dummy", "dummy"]
-    
-    func initializeGameArray() {
-        gameArray.shuffle() // 配列をシャッフルする
-    }
-    
-    
-    
+    // ボス関連
+    let bossQRCodeString = "BOSS" // ボスQRの文字列 (適宜変更してください)
+    //var bossHP: Int = 100
+        
+    // ボスHP表示用UI
+    //var bossHPLabel: UILabel!
+    //var bossHPBackgroundView: UIView! // HPバーの背景
+    //var bossHPBarView: UIView!      // HPバー本体
+
+    // ▽▽▽ [NEW FLOW] viewDidLoad (接続待機処理を追加) ▽▽▽
     override func viewDidLoad() {
         super.viewDidLoad()
-        initializeGameArray() // 配列の初期化
+        initializeGameArray()
         setupCamera()
-        setupImageViews()
-        setupTouchGesture()
-        prepareVideos()
-        setupCustomVolumeView()
+        setupImageViews() // 内部で preloadImages() を呼ぶ
+        preloadAudio() // ▽ サウンドをロード
         view.backgroundColor = .black
-        /*
-        sendToUnity(sendnum: -5)
-        */
         
-        let data = "-5".data(using: .utf8)!
-        TCPClient.shared.start(data: data)
+        // ▽▽▽ [FIX-1] Scan_Null を初期表示 ▽▽▽
+        updateCartridgeLightImage(selectedCartridgeIndex) // scanNullImage がセットされる
+        statusImageView.isHidden = false // ▽ 表示する
+        // △△△ [FIX-1] △△△
         
+        // ▽ 動画のプリロード
         preloadVideo(named: "vacuum.mp4")
         preloadVideo(named: "vacuum_dummy.mp4")
+        preloadVideo(named: "10.mp4")
+        preloadVideo(named: "25.mp4")
+        preloadVideo(named: "77.mp4")
         
-        lightImageView.isHidden = false
-        
-        // 現在の音量を取得
-        initialVolume = audioSession.outputVolume
-        setSystemVolume(initialVolume)
-        setupVolumeButtonHandler()
+        // ▽▽▽ [FIX-4] ボス攻撃動画をプリロード ▽▽▽
+        preloadVideo(named: "Boss_10.mp4")
+        preloadVideo(named: "Boss_25.mp4")
+        preloadVideo(named: "Boss_77.mp4")
         
         if isDebugMode {
             setupDebugLabels() // デバッグモードの場合、ラベルを設定
         }
-        startGameTimer()
-    }
-    /*
-    func sendToUnity(sendnum: Int) {
-        guard !hasSentData else {
-            print("Data already sent, skipping for value: \(sendnum)")
-            return
-        }
+        // ▽▽▽ [FIX-2] ボスUIセットアップを削除 ▽▽▽
+        // setupBossHPUI()
+        // △△△ [FIX-2] △△△
         
-        let data = String(sendnum).data(using: .utf8)!
-        do {
-            print("Data sent successfully with value: \(sendnum)")
-
-            // 送信フラグを設定
-        } catch {
-            print("Failed to send data for value \(sendnum): \(error.localizedDescription)")
-        }
-    }
-         */
-    func setupCustomVolumeView() {
-        let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
-        volumeView.isHidden = true  // 標準の音量ビューを非表示に
-        self.view.addSubview(volumeView)
+        // ▽▽▽ [NEW FLOW] TCP接続状態の監視を開始 ▽▽▽
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTCPConnectionStatus(_:)),
+            name: .tcpConnectionStatusChanged,
+            object: nil
+        )
+        
+        // ▽▽▽ [NEW FLOW] TCPコマンド受信の監視 ▽▽▽
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTCPCommand(_:)),
+            name: .tcpMessageReceived,
+            object: nil
+        )
+        
+        // ▽ TCPClient.shared.start() は AppDelegate で実行される想定
+        // ▽ 接続が確立したら handleTCPConnectionStatus が呼ばれる
     }
     
-    // 音量変更があった時に呼ばれる関数
-    @objc func volumeDidChange(notification: NSNotification) {
-        // 音量を元の値に戻す
-        setSystemVolume(initialVolume)
-    }
+    
+    // 削除: var cartridgeLabels: [UILabel] = []
+    
+    // ▽▽▽ [NEW FLOW] ゲーム配列の初期化 (変更なし) ▽▽▽
+    func initializeGameArray() {
+        gameScores = [] // 配列を初期化
 
-    // 音量をプログラム的に設定する
-    func setSystemVolume(_ volume: Float) {
-        let volumeView = MPVolumeView()
-        if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
-            slider.value = volume
+        // 0番目は -1 (インデックス調整用)
+        gameScores.append(-1)
+
+        // 1〜7番目 (10: 80%, 25: 19.5%, 77: 0.5%)
+        for _ in 1...7 {
+            let r = Double.random(in: 0..<1)
+            if r < 0.80 {           // 80%
+                gameScores.append(10)
+            } else if r < 0.80 + 0.19 { // 19% (0.80 <= r < 0.99)
+                gameScores.append(25)
+            } else {                  // 1% (r >= 0.99)
+                gameScores.append(77)
+            }
+        }
+
+        // 8〜10番目 (25: 98%, 77: 2%)
+        for _ in 8...10 {
+            let r = Double.random(in: 0..<1)
+            if r < 0.98 {           // 98%
+                gameScores.append(25)
+            } else {                  // 2% (r >= 0.98)
+                gameScores.append(77)
+            }
+        }
+        print("ゲーム配列が初期化されました: \(gameScores)")
+    }
+    
+    // ▽▽▽ [NEW FLOW] ゲームリセット処理 (タイマー停止などを追加) ▽▽▽
+    public func resetGame() {
+        print("--- ▽▽▽ ゲーム状態をリセット ▽▽▽ ---")
+        exterminatedCount = 0
+        //remainingTime = 270 // 4分30秒
+        initializeGameArray()
+        cartridge = [nil, nil, nil, nil]
+        // bossHP = 100 // 削除
+        selectedCartridgeIndex = 0
+        
+        //isGameStarted = false
+        isWaitingForFinish = false
+        canStartSuction = false
+        isBossScan = false // ▽ ボススキャンフラグをリセット
+        
+        //gameTimer?.invalidate()
+        //gameTimer = nil
+        suctionTimer?.invalidate()
+        suctionTimer = nil
+        qrCodeLostTimer?.invalidate()
+        qrCodeLostTimer = nil
+        
+        DispatchQueue.main.async {
+            self.updateDebugLabels()
+            // ▽ ボスUIリセットを削除
+            // self.updateBossHPUI(animate: false)
+            // self.bossHPLabel.isHidden = true
+            self.hideQRCodeImage()
+            
+            // ▽▽▽ [NEW FLOW] ライトをリセット ▽▽▽
+            self.updateCartridgeLightImage(self.selectedCartridgeIndex)
+            self.statusImageView.isHidden = false // ▽ [FIX-1] 表示状態に戻す
         }
     }
+    
+    
+    
+    // ▽▽▽ [NEW FLOW] 画面が表示されたら接続確認 (フォールバック) ▽▽▽
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // もし既に接続済みで、まだ接続確立処理が動いていなかった場合
+        if TCPClient.shared.currentState == .ready && !isConnectionEstablished {
+             handleConnectionEstablished()
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        suctionTimer?.invalidate()
+        qrCodeLostTimer?.invalidate()
+        //gameTimer?.invalidate()
+    }
+    
+    // ▽▽▽ [NEW FLOW] 接続状態ハンドラ ▽▽▽
+    @objc func handleTCPConnectionStatus(_ notification: Notification) {
+        guard let status = notification.object as? TCPConnectionStatus else { return }
+        
+        switch status {
+        case .connected:
+            if !isConnectionEstablished {
+                 handleConnectionEstablished()
+            }
+        case .disconnected, .connecting:
+            // 接続が切れたらスキャンを停止し、待機状態に戻る
+            isConnectionEstablished = false
+            DispatchQueue.main.async {
+                self.captureSession.stopRunning()
+                self.statusImageView.image = nil // 何も表示しないなど
+                self.statusImageView.isHidden = true
+            }
+        }
+    }
+    
+    // ▽▽▽ [NEW FLOW] 接続確立時の処理 ▽▽▽
+    func handleConnectionEstablished() {
+        print("--- ▽▽▽ 接続確立！ゲーム準備完了 ▽▽▽ ---")
+        isConnectionEstablished = true
+        TCPClient.shared.send(message: "Connection_Beginning") //
+        
+        DispatchQueue.main.async {
+            // ▽▽▽ [FIX-1] Scan_Null を表示 ▽▽▽
+            self.statusImageView.image = self.scanNullImage
+            self.statusImageView.isHidden = false
+            // △△△ [FIX-1] △△△
+            
+            // ▽ 接続が確立して初めてQRスキャンを開始
+            if !self.captureSession.isRunning {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    self.captureSession.startRunning()
+                }
+            }
+        }
+    }
+    
+    // ▽▽▽ [NEW FLOW] カートリッジライト表示更新 (Scan_...png を使用) ▽▽▽
+    func updateCartridgeLightImage(_ index: Int) {
+        let score = cartridge[index]
+        switch score {
+        case 10:
+            statusImageView.image = scan10Image
+        case 25:
+            statusImageView.image = scan25Image
+        case 77:
+            statusImageView.image = scan77Image
+        default: // nil
+            // ▽▽▽ [FIX-2] scanCHImage ではなく scanNullImage を使用 ▽▽▽
+            statusImageView.image = scanNullImage
+            // △△△ [FIX-2] △△△
+        }
+    }
+    /*
+    func setupBossHPUI() {
+        // ボスHPラベル (カウンター)
+        bossHPLabel = UILabel() // ▽ Frame set with constraints
+        bossHPLabel.textColor = .red
+        bossHPLabel.font = .systemFont(ofSize: 120, weight: .bold) // ▽ Big font
+        bossHPLabel.text = "HP 100"
+        bossHPLabel.textAlignment = .center
+        bossHPLabel.isHidden = true
+        bossHPLabel.translatesAutoresizingMaskIntoConstraints = false // ▽ Use constraints
+        view.addSubview(bossHPLabel)
+                
+        // ▽ Center it
+        NSLayoutConstraint.activate([
+            bossHPLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            bossHPLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            bossHPLabel.widthAnchor.constraint(equalTo: view.widthAnchor)
+        ])
+                
+        // ▽▽▽ [FIX-5] メーターの初期化を削除 ▽▽▽
+        // bossHPBackgroundView = ...
+        // bossHPBarView = ...
+        // △△△ [FIX-5] △△△
+    }
+    */
+    // MARK: - UI更新
+    /*
+        func updateBossHPUI(animate: Bool) {
+        // ▽▽▽ [FIX-5] メーター関連のロジックをすべて削除 ▽▽▽
+        // let hpRatio = ...
+        // let barWidth = ...
+        // if hpRatio < 0.3 ...
+        // let updateBlock = ...
+        // △△△ [FIX-5] △△△
+        
+        bossHPLabel.text = "HP \(bossHP)" // ▽ カウンターのテキストのみ更新
+          /*  
+        // HPが0以下ならゲームクリア
+        if bossHP <= 0 && !isSuctionMode { // 吸い込み中などでないことを確認
+            // 少し遅延させて「倒した！」感を出してから画面遷移
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if self.presentedViewController == nil {
+                    self.endGame(isGameClear: true) // ▽ ゲームクリア
+                }
+            }
+        }
+        */
+    }
+    */
+    // ▽▽▽ [NEW FLOW] サウンド読み込み ▽▽▽
+    func preloadAudio() {
+        guard let url = Bundle.main.url(forResource: "cartridge_change", withExtension: "mp3") else {
+            print("Audio file 'cartridge_change.wav' not found.")
+            return
+        }
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            audioPlayer?.prepareToPlay()
+        } catch {
+            print("Error loading audio file: \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - TCPコマンド処理
+        
+    @objc func handleTCPCommand(_ notification: Notification) {
+        guard let command = notification.userInfo?["command"] as? String else { return }
+        
+        print("GameVC received command: \(command)")
+        
+        // ▽▽▽ [NEW FLOW] ゲーム終了待機中は "Connection_Finished" のみ受け付ける ▽▽▽
+        if isWaitingForFinish {
+            if command == "Connection_Finished" {
+                print("--- ▽▽▽ Connection_Finished 受信。リセットします ▽▽▽ ---")
+                isWaitingForFinish = false
+                resetGame() // 状態をリセット
+                
+                // ▽ 接続確立済みの状態に戻し、スキャンを再開
+                handleConnectionEstablished()
+            }
+            return
+        }
+
+        // ▽▽▽ [NEW FLOW] 吸い取りモード中はコマンドを無視 ▽▽▽
+        if isSuctionMode { return }
+
+        // ▽▽▽ [Unity Logic] カートリッジ変更 (A, B, X, Y) ▽▽▽
+        var newIndex: Int? = nil
+        
+        switch command {
+        case "Selected_A":
+            newIndex = 0
+        case "Selected_B":
+            newIndex = 1
+        case "Selected_Y":
+            newIndex = 2
+        case "Selected_X":
+            newIndex = 3
+        default:
+            break
+        }
+        
+        if let newIndex = newIndex {
+            print("カートリッジを \(newIndex) に変更します")
+                
+            // ▽▽▽ [NEW FLOW] 割り込み処理 ▽▽▽
+            // 3秒受付時間中だったら、受付をキャンセルする
+            if canStartSuction {
+                suctionTimer?.invalidate()
+                suctionTimer = nil
+                canStartSuction = false
+                hideQRCodeImage()
+                isBossScan = false // ▽ 割り込み時はボススキャンも解除
+            }
+            
+            selectedCartridgeIndex = newIndex
+            
+            // 1. サウンド再生
+            audioPlayer?.play()
+            
+            // 2. Scan_CH を 0.2秒表示
+            statusImageView.image = scanCHImage
+            statusImageView.isHidden = false
+            
+            // 3. 0.2秒後に、選択中のカートリッジのライトに変更
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.updateCartridgeLightImage(newIndex)
+                self.statusImageView.isHidden = false
+            }
+            
+        } 
+        // ▽▽▽ [NEW FLOW] シャッター（吸い取り/攻撃） ▽▽▽
+        else if command == "Release_Shutter" {
+            
+            // ▽ 3秒受付時間外なら無視
+            guard canStartSuction else {
+                print("TCP: 'Release_Shutter' received, but not in 3-sec window. Ignoring.")
+                return
+            }
+            
+            // ▽ 受付時間を即時終了
+            canStartSuction = false
+            suctionTimer?.invalidate()
+            suctionTimer = nil
+            
+            // ▽▽▽ [FIX-2] ボスフラグで判定 ▽▽▽
+            if isBossScan {
+                handleBossAttack() // ▽ ボス攻撃
+            } else if qrCodeNumber != nil {
+                handleGhostSuction() // ▽ おばけ吸い取り
+                    }
+            // △△△ [FIX-2] △△△
+            
+                }
+        // ▽ ゲーム判定
+        else if command == "Game_Clear" || command == "Game_Over" {
+            print("--- ▽▽▽ \(command) 受信。待機状態に移行 ▽▽▽ ---")
+            
+            // 全てのタイマーを止める
+            suctionTimer?.invalidate()
+            suctionTimer = nil
+            qrCodeLostTimer?.invalidate()
+            qrCodeLostTimer = nil
+
+            // QRスキャンを停止
+            if captureSession.isRunning {
+                 captureSession.stopRunning()
+            }
+            
+            isWaitingForFinish = true
+            
+            // 画面をリセット
+            hideQRCodeImage()
+            isBossScan = false
+            statusImageView.isHidden = true
+            }
+        }
+    
+    // ▽▽▽ [NEW FLOW] おばけ吸い取り実行 ▽▽▽
+    func handleGhostSuction() {
+        if let qrNum = self.qrCodeNumber, qrNum >= 1 && qrNum < gameScores.count {
+            let score = gameScores[qrNum]
+                
+                if score > 0 {
+                print("TCP: おばけ吸い込みモードに移行します (score: \(score))")
+                    
+                // 1. PCに吸い取り開始を通知
+                // ▽▽▽ [Unity Logic] 送信コマンドの変更 ▽▽▽
+                // TCPClient.shared.send(message: "Scan_Beginning") // 削除 (不要になった)
+                // △△△ [Unity Logic] △△△
+                
+                // 2. 吸い取り開始
+                    startSuctionMode(score: score)
+                gameScores[qrNum] = 0 // 吸い取り開始時点で0に
+                } else {
+                    print("TCP: 既に吸い取られたQRです。")
+                // ライトを戻す
+                updateCartridgeLightImage(selectedCartridgeIndex)
+                statusImageView.isHidden = false
+                }
+            }
+        }
+    
+    // ▽▽▽ [NEW FLOW] ボス攻撃実行 ▽▽▽
+    func handleBossAttack() {
+        if let score = cartridge[selectedCartridgeIndex] {
+            // --- カートリッジに中身あり ---
+            print("TCP: ボス攻撃動画を開始します (score: \(score))")
+            
+            // ▽▽▽ [FIX-4] 動画再生を開始する ▽▽▽
+            startBossAttackVideo(score: score)
+            // △△△ [FIX-4] △△△
+            /*
+            // 2. ボスHPを減らす
+            bossHP -= score
+            updateBossHPUI(animate: true)
+                
+            // 3. カートリッジを空にする
+            cartridge[selectedCartridgeIndex] = nil
+            
+            // ▽▽▽ [Unity Logic] ゲーム開始ロジックを削除 ▽▽▽
+            // if !isGameStarted ... (削除)
+            // △△△ [Unity Logic] △△△
+            */
+        } else {
+            // --- カートリッジが空 ---
+            print("TCP: カートリッジが空です。攻撃できません。")
+            // ▽▽▽ [Unity Logic] 失敗コマンドは不要になったため削除 ▽▽▽
+            // TCPClient.shared.send(message: "ATTACK_FAIL_EMPTY")
+            // △△△ [Unity Logic] △△△
+        }
+        
+        // ▽ 攻撃後、ボスUIを隠し、ライト表示に戻る
+        hideQRCodeImage()
+        updateCartridgeLightImage(selectedCartridgeIndex) // 空になったのでNullが表示されるはず
+        statusImageView.isHidden = false
+    }
+    
     
     func setupDebugLabels() {
         debugGhostCountLabel = UILabel(frame: CGRect(x: view.bounds.width - 120, y: 50, width: 100, height: 30))
@@ -147,70 +536,42 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
         debugRemainingTimeLabel = UILabel(frame: CGRect(x: view.bounds.width - 120, y: 90, width: 100, height: 30))
         debugRemainingTimeLabel?.textColor = .red
-        debugRemainingTimeLabel?.text = "残り時間: \(remainingTime)"
+        debugRemainingTimeLabel?.text = "時間: (Unity)" // ▽ Unity側で管理
         view.addSubview(debugRemainingTimeLabel!)
     }
+
     
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        super.pressesBegan(presses, with: event)
-        
-        // リモコンのボタンが押された場合の処理
-        for press in presses {
-            if press.type == .playPause || press.type == .select {
-                print("Bluetoothリモコンのボタンが押されました")
-                handleRemoteButtonPress()
-            }
+    // ▽▽▽ [NEW FLOW] 修正: preloadVideo (ファイル名の分割処理) ▽▽▽
+    func preloadVideo(named videoNameWithExtension: String) {
+        let components = videoNameWithExtension.split(separator: ".")
+        guard components.count == 2 else {
+            print("preloadVideo Error: Invalid filename format \(videoNameWithExtension)")
+            return
         }
-    }
-
-    func setupVolumeButtonHandler() {
-        let volumeView = MPVolumeView(frame: .zero)
-        view.addSubview(volumeView)
+        let resourceName = String(components[0])
+        let resourceType = String(components[1])
         
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setActive(true)
-        } catch {
-            print("Failed to activate audio session")
-        }
-
-        audioSession.addObserver(self, forKeyPath: "outputVolume", options: [.old, .new], context: nil)
-    }
-
-    func prepareVideos() {
-        guard let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") else { return }
-        let playerItem = AVPlayerItem(url: videoURL)
-        playerItem.preferredForwardBufferDuration = 1.0
-        player = AVPlayer(playerItem: playerItem)
-    }
-    
-    func preloadVideo(named videoName: String) {
-        // 動画ファイルのURLを取得
-        if let videoPath = Bundle.main.path(forResource: videoName, ofType: nil) {
+        if let videoPath = Bundle.main.path(forResource: resourceName, ofType: resourceType) {
             let videoURL = URL(fileURLWithPath: videoPath)
             let asset = AVAsset(url: videoURL)
             let playerItem = AVPlayerItem(asset: asset)
-            
-            // 動画を再生する準備をする
             player = AVPlayer(playerItem: playerItem)
-            playerLayer = AVPlayerLayer(player: player)
-            playerLayer?.frame = self.view.bounds
-            self.view.layer.addSublayer(playerLayer!)
             
-            // 再生前にプレイヤーを一時停止して準備させる
-            player?.pause()
+            // ▽ 画面には追加しない。再生準備だけ行う
+            if let validPlayer = player {
+                playerLayer = AVPlayerLayer(player: validPlayer)
+                playerLayer?.frame = self.view.bounds
+                validPlayer.pause()
+            }
+        } else {
+             print("preloadVideo Error: Video file not found: \(videoNameWithExtension)")
         }
     }
-    
-    deinit {
-        // 音量変更の通知を解除
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"), object: nil)
-    }
-    
+        
     
     func setupCamera() {
+        // (変更なし、以前の .qr ガード節を含む)
         captureSession = AVCaptureSession()
-        
         guard let videoCaptureDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else { return }
         let videoInput: AVCaptureDeviceInput
         
@@ -229,45 +590,36 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         }
         
         let metadataOutput = AVCaptureMetadataOutput()
-        
         if captureSession.canAddOutput(metadataOutput) {
             captureSession.addOutput(metadataOutput)
-            
             metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            
+            guard metadataOutput.availableMetadataObjectTypes.contains(.qr) else {
+                print("QR code metadata is not supported on this device.")
+                return
+            }
             metadataOutput.metadataObjectTypes = [.qr]
         } else {
             print("Could not add metadata output to capture session")
             return
         }
 
-        DispatchQueue.global(qos: .userInitiated).async {
-         self.captureSession.startRunning() // ここをバックグラウンドスレッドで実行
-         }
+        // ▽ 起動は handleConnectionEstablished() で行う
+        // DispatchQueue.global(qos: .userInitiated).async {
+        //  self.captureSession.startRunning()
+        // }
     }
     
+    // ▽▽▽ [NEW FLOW] ImageViewセットアップ (Scan_...png をプリロード) ▽▽▽
     func setupImageViews() {
         
-        // light.png の UIImageView を作成
-        lightImageView = UIImageView(image: UIImage(named: "light"))
-        lightImageView.contentMode = .scaleAspectFill
-        lightImageView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(lightImageView)
+        // カートリッジ状態ライト表示用 (Scan_CH, Scan_10 など)
+        statusImageView = UIImageView()
+        statusImageView.contentMode = .scaleAspectFill
+        statusImageView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(statusImageView)
         
-        // Ghost ImageView の設定
-        ghostImageView = UIImageView(image: UIImage(named: "ghost"))
-        ghostImageView.contentMode = .scaleAspectFill
-        ghostImageView.frame = view.bounds
-        ghostImageView.isHidden = true
-        view.addSubview(ghostImageView)
-        
-        // Dummy ImageView の設定
-        dummyImageView = UIImageView(image: UIImage(named: "dummy"))
-        dummyImageView.contentMode = .scaleAspectFill
-        dummyImageView.frame = view.bounds
-        dummyImageView.isHidden = true
-        view.addSubview(dummyImageView)
-        
-        // 現在のQRコードの画像ビュー（ghostかdummyが表示される）
+        // おばけ(normal, rea, cannot)表示用
         currentQRCodeImageView = UIImageView()
         currentQRCodeImageView.contentMode = .scaleAspectFill
         currentQRCodeImageView.frame = view.bounds
@@ -275,166 +627,181 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         view.addSubview(currentQRCodeImageView)
         
         NSLayoutConstraint.activate([
-                    lightImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    lightImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                    lightImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                    lightImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
-                    
-                    dummyImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    dummyImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                    dummyImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                    dummyImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
-                    
-                    ghostImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                    ghostImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-                    ghostImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
-                    ghostImageView.heightAnchor.constraint(equalTo: view.heightAnchor)
-                ])
-    }
-    
-    func setupTouchGesture() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleScreenTap))
-        view.addGestureRecognizer(tapGesture)
-    }
-    
-    @objc func handleScreenTap() {
-        if isSuctionMode || isDummyMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
-            return
-        }//吸い取りモード中やQRコードがない場合は無視
-        if let qrCodeNumber = self.qrCodeNumber, detectedQRCodeType == "ghost" {
-            print("画面がタッチされ、吸い込みモードに移行します")
-            startSuctionMode()
-            gameArray[qrCodeNumber] = "dummy" // 吸い込み後にdummyに置換
-        } else if detectedQRCodeType == "dummy" {
-            print("画面がタッチされましたが、dummyです。操作不能にします。")
-            startDummyMode()
-        }
-    }
-    
-    func handleRemoteButtonPress() {
+            statusImageView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            statusImageView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            statusImageView.widthAnchor.constraint(equalTo: view.widthAnchor),
+            statusImageView.heightAnchor.constraint(equalTo: view.heightAnchor),
+        ])
         
-        let currentVolume = AVAudioSession.sharedInstance().outputVolume
-        let maxVolume: Float = 0.7 // 最大音量
-        
-        if currentVolume >= maxVolume {
-             // 音量を少し下げる
-            
-             setVolume(volume: currentVolume - 0.1)
-         }
-        
-        if isSuctionMode || isDummyMode || (player.rate > 0.0 || (player?.rate ?? 0.0) > 0.0) {
-            return
-        }
-        if let qrCodeNumber = self.qrCodeNumber, detectedQRCodeType == "ghost" {
-            print("リモコンのボタンが押され、吸い込みモードに移行します")
-            startSuctionMode()
-            gameArray[qrCodeNumber] = "dummy" // 吸い込み後にdummyに置換
-        } else if detectedQRCodeType == "dummy" {
-            print("リモコンのボタンが押されましたが、dummyです。操作不能にします。")
-            startDummyMode()
-        }
+        // ▽ 画像をプリロード
+        scanCHImage = UIImage(named: "Scan_CH")
+        scan10Image = UIImage(named: "Scan_10")
+        scan25Image = UIImage(named: "Scan_25")
+        scan77Image = UIImage(named: "Scan_77")
+        scanNullImage = UIImage(named: "Scan_Null") // ▽▽▽ [FIX-1, 2] 追加 ▽▽▽
+
+        normalGhostImage = UIImage(named: "Normal")
+        reaGhostImage = UIImage(named: "Rea")
+        cannotGhostImage = UIImage(named: "Scan_Unreadable")
+        bossGhostImage = UIImage(named: "Boss")
     }
+
     
-    func setVolume(volume: Float) {
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setActive(true)
-            // audioSessionを通じて音量を設定する処理
-            // ここで音量設定の処理を追加
-        } catch {
-            print("Error setting volume: \(error.localizedDescription)")
-        }
-    }
-    
+    // MARK: - タイマーとQR処理
+    /*
     func startGameTimer() {
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+        guard gameTimer == nil else { return }
+        
+        print("--- ▽▽▽ ゲームタイマー開始 ▽▽▽ ---")
+        isGameStarted = true
+        
+        gameTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
+            guard let self = self else {
+                timer.invalidate()
+                return
+            }
+            
             self.remainingTime -= 1
             self.updateDebugLabels()
 
             if self.remainingTime <= 0 {
                 timer.invalidate()
-                self.endGame(isGameClear: false)
+                self.endGame(isGameClear: false) // ▽ ゲームオーバー
             }
         }
     }
+    */
     
     func updateDebugLabels() {
         debugGhostCountLabel?.text = "退治数: \(exterminatedCount)"
+        /*
+        if isGameStarted {
         debugRemainingTimeLabel?.text = "残り時間: \(remainingTime)"
+        } else {
+            debugRemainingTimeLabel?.text = "残り時間: --"
+        }
+        */
     }
     
     
+    // ▽▽▽ [NEW FLOW] QRスキャン処理 (待機フラグをチェック) ▽▽▽
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        // 吸い取りモード中、ダミー操作中はQRコードの処理をしない
-        if isSuctionMode || isDummyMode { return }
+        
+        // ▽ 接続中/吸い取り中/終了待機中 はスキャンしない
+        if isSuctionMode || isDummyMode || !isConnectionEstablished || isWaitingForFinish { return }
+        
+        // ▽▽▽ [FIX-4] 'if canStartSuction { return }' を削除 ▽▽▽
+        // 連続スキャンを許可し、タイマーリセットは各ハンドラで行う
         
         if let metadataObject = metadataObjects.first {
             guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject,
-                  let stringValue = readableObject.stringValue,
-                  let qrCodeNumber = Int(stringValue) else {
-                
-                
-                
-                
+                  let stringValue = readableObject.stringValue else {
                 handleQRCodeLost()
                 return
             }
             
-            // QRコードが読み取れたので、処理を実行
-            handleQRCodeDetected(qrCodeNumber: qrCodeNumber)
+            isQRCodeVisible = true
             
+            // ▽▽▽ ボスQR処理を追加 ▽▽▽
+            if stringValue == bossQRCodeString {
+                // ▽▽▽ [FIX-2] ボスQR処理 ▽▽▽
+                handleBossQRCodeDetected()
+            }
+            // ▽▽▽ おばけQR処理 (Intに変換) ▽▽▽
+            else if let qrCodeNumber = Int(stringValue) {
+                handleQRCodeDetected(qrCodeNumber: qrCodeNumber)
+            }
+            // ▽▽▽ それ以外 ▽▽▽
+            else {
+                // "marker_tutorial" など、他の文字列QRの可能性
+                handleQRCodeLost()
+            }
+                        
         } else {
             handleQRCodeLost()
-            lightImageView.isHidden = false
         }
     }
 
-    
+    // ▽▽▽ おばけQR検出 ▽▽▽
     func handleQRCodeDetected(qrCodeNumber: Int) {
+        
+        // ▽ 連続スキャン時のタイマーリセット
+        if canStartSuction {
+            // ▽ ただし、前回がボススキャンだったら、リセットして通常処理
+            if isBossScan {
+                suctionTimer?.invalidate()
+                // (fall through to normal processing)
+            } else {
+                // ▽ 前回もおばけスキャンならタイマーリセットのみ
+                suctionTimer?.invalidate()
+            suctionTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                print("3-second suction window closed (from reset).")
+                self?.canStartSuction = false
+                self?.suctionTimer = nil
+                self?.hideQRCodeImage()
+                self?.updateCartridgeLightImage(self?.selectedCartridgeIndex ?? 0)
+                self?.statusImageView.isHidden = false
+            }
+            return // 画像を再表示せずにタイマーだけリセット
+        }
+        }
+
+        // ▽ 以下は初回スキャン時のみ実行される
+        suctionTimer?.invalidate()
+        canStartSuction = false
+        isBossScan = false // ▽ おばけフラグ
+        statusImageView.isHidden = true
+        
         self.qrCodeNumber = qrCodeNumber
-        lightImageView.isHidden = true
-        // QRコードが検出された時の処理
-        if !isQRCodeVisible {
-            isQRCodeVisible = true
-            print("QRコードが見えています: \(qrCodeNumber)")
+
+        // QRコードに対応する処理（score が 0 か正の値かで判定）
+        guard qrCodeNumber >= 1 && qrCodeNumber < gameScores.count else {
+            handleQRCodeLost()
+            return
         }
         
-        // QRコードに対応する処理（ghostかdummyかの判定）
-        if qrCodeNumber >= 0 && qrCodeNumber < gameArray.count {
-            let qrCodeType = gameArray[qrCodeNumber]
-            lightImageView.isHidden = false
-            
-            if qrCodeType == "ghost" {
-                detectedQRCodeType = "ghost"
-                print("QRコードがghostです。画面タッチで吸い込みモードに移行できます")
-               
-                lightImageView.isHidden = true
-                dummyImageView.isHidden = true
-                
-                currentQRCodeImageView.isHidden = false
-                ghostImageView.isHidden = false
-                showQRCodeImage(image: ghostImageView.image!)
-                view.bringSubviewToFront(ghostImageView)
-                
-                if isSuctionMode {
-                    ghostImageView.isHidden = true
-                }
-            } else if qrCodeType == "dummy" {
-                detectedQRCodeType = "dummy"
-                print("QRコードがdummyです")
-                lightImageView.isHidden = true
-                ghostImageView.isHidden = true
-                
-                dummyImageView.isHidden = false
-                currentQRCodeImageView.isHidden = false
+        let score = gameScores[qrCodeNumber]
 
-                showQRCodeImage(image: dummyImageView.image!)
-                view.bringSubviewToFront(dummyImageView)
-                // ダミーQRコードを読み取った場合、表示を無効にする処理を追加
-                if isDummyMode {
-                    dummyImageView.isHidden = true // dummyが表示されないように            }
+            if score > 0 {
+            // --- まだ吸い取られていない ---
+                let selectedCartridgeContent = cartridge[selectedCartridgeIndex]
+                    
+                if selectedCartridgeContent == nil {
+                // --- 吸い取り可能 ---
+                print("QR \(qrCodeNumber) 検出。吸い取り準備 (3秒)")
+                    
+                    var imageToShow: UIImage?
+                if (1...7).contains(qrCodeNumber) { imageToShow = normalGhostImage }
+                else if (8...10).contains(qrCodeNumber) { imageToShow = reaGhostImage }
+                    
+                if let image = imageToShow { showQRCodeImage(image: image) }
+                else { print("Error: normal.png または rea.png が見つかりません。") }
+                    
+                // 3秒間の "Release_Shutter" 受付開始
+                    canStartSuction = true
+                    suctionTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                        print("3-second suction window closed.")
+                        self?.canStartSuction = false
+                        self?.suctionTimer = nil
+                    self?.hideQRCodeImage()
+                    self?.updateCartridgeLightImage(self?.selectedCartridgeIndex ?? 0)
+                    self?.statusImageView.isHidden = false
+                    }
+            
+            } else {
+                // --- カートリッジ満タン ---
+                print("QR \(qrCodeNumber) 検出。カートリッジ満タン。")
+                if let image = cannotGhostImage { showQRCodeImage(image: image)
+                } else {
+                    print("Error: cannot.png が見つかりません。")
                 }
             }
+                
+            } else {
+            // --- 既に吸い取られている ---
+                hideQRCodeImage()
+            updateCartridgeLightImage(selectedCartridgeIndex)
+            statusImageView.isHidden = false
         }
         
         // QRコードを見失った際のタイマーを無効化（見えている間はリセット）
@@ -442,49 +809,124 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         qrCodeLostTimer = nil
     }
     
+    // ▽▽▽ [NEW FLOW] ボスQR検出 (3秒タイマー開始) ▽▽▽
+    func handleBossQRCodeDetected() {
+        
+        // ▽▽▽ [FIX-4] 連続スキャン時のタイマーリセット処理 ▽▽▽
+        if canStartSuction {
+            // ▽ 前回がおばけスキャンだったら、リセットして通常処理
+            if !isBossScan {
+                suctionTimer?.invalidate()
+                // (fall through to normal processing)
+            } else {
+                // ▽ 前回もボススキャンならタイマーリセットのみ
+                suctionTimer?.invalidate()
+            suctionTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                print("3-second suction window closed (from reset).")
+                self.canStartSuction = false
+                self.suctionTimer = nil
+                self.hideQRCodeImage()
+                    self.isBossScan = false // ▽
+                self.updateCartridgeLightImage(self.selectedCartridgeIndex)
+                self.statusImageView.isHidden = false
+            }
+            return // 画像を再表示せずにタイマーだけリセット
+        }
+        }
+        
+        print("ボスQRコードを検出しました")
+        self.qrCodeNumber = nil
+        self.isBossScan = true // ▽ ボススキャンフラグ
+            
+        // おばけUIとカートリッジライトを隠す
+        hideQRCodeImage()
+        statusImageView.isHidden = true
+            
+        // 吸い取り許可タイマーを停止
+        suctionTimer?.invalidate()
+        suctionTimer = nil
+            
+        qrCodeLostTimer?.invalidate()
+        qrCodeLostTimer = nil
+            
+        // ▽▽▽ カートリッジを使った攻撃準備 ▽▽▽
+        if cartridge[selectedCartridgeIndex] != nil {
+            // --- カートリッジに中身あり (攻撃準備) ---
+            print("ボスQR検出。攻撃準備 (3秒)")
+                
+            if let image = bossGhostImage {
+                showQRCodeImage(image: image)
+            } else {
+                print("Error: Boss.png が見つかりません。")
+            }
+                
+            canStartSuction = true
+            suctionTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                print("3-second suction window closed.")
+                self.canStartSuction = false
+                self.suctionTimer = nil
+                self.hideQRCodeImage()
+                self.isBossScan = false // ▽
+                self.updateCartridgeLightImage(self.selectedCartridgeIndex)
+                self.statusImageView.isHidden = false
+            }
+                
+        } else {
+            // --- カートリッジが空 (攻撃不可) ---
+            print("ボスQR検出。カートリッジが空。")
+            if let image = cannotGhostImage {
+                showQRCodeImage(image: image) // cannot表示
+            } else {
+                print("Error: cannot.png が見つかりません。")
+            }
+            canStartSuction = false
+        }
+    }
+    
+    // ▽▽▽ 修正: QRを見失った時の処理 ▽▽▽
     func handleQRCodeLost() {
-        // QRコードが見えなくなった時の処理
+        // ▽ 3秒受付時間中なら、見失ってもタイマーは続行
+        if canStartSuction { return } 
+        
         if isQRCodeVisible {
             if qrCodeLostTimer == nil {
                 qrCodeLostTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-                    self?.isQRCodeVisible = false
-                    self?.detectedQRCodeType = nil
-                    print("QRコードが消えました")
-                    self?.hideQRCodeImage() // QRコードが消えたら画像も非表示にする
-                    self?.ghostImageView.isHidden = true
-                    self?.dummyImageView.isHidden = true
-                    self?.currentQRCodeImageView.isHidden = true
-                    self?.lightImageView.isHidden = false
+                    guard let self = self else { return }
                     
+                    self.isQRCodeVisible = false
+                    print("QRコードが消えました")
+                    self.hideQRCodeImage()
+                    self.isBossScan = false // ▽
+                    self.updateCartridgeLightImage(self.selectedCartridgeIndex)
+                    self.statusImageView.isHidden = false
                 }
             }
         }
     }
     
+    // ▽▽▽ 修正: QR画像表示 ▽▽▽
     func showQRCodeImage(image: UIImage) {
-        print("showQRCodeImage: 画像が表示されます")
-
         currentQRCodeImageView.image = image
         currentQRCodeImageView.isHidden = false
         view.bringSubviewToFront(currentQRCodeImageView)
-        lightImageView.isHidden = true
+        statusImageView.isHidden = true // ライトを隠す
     }
     
+    // ▽▽▽ 修正: QR画像非表示 ▽▽▽
     func hideQRCodeImage(){
         currentQRCodeImageView.isHidden = true
         currentQRCodeImageView.image = nil
-        lightImageView.isHidden = false
     }
     
-    func startSuctionMode() {
-        /*
-        sendToUnity(sendnum: -6)
-         */
-        let data = "-6".data(using: .utf8)!
-        TCPClient.shared.start(data: data)
+    // ▽▽▽ 修正: 吸い取り開始 ▽▽▽
+    func startSuctionMode(score: Int) {
         
         isSuctionMode = true
+        currentSuctionScore = score
         hideQRCodeImage()
+        statusImageView.isHidden = true
         
         // プレースホルダー画像を表示
         let placeholderImageView = UIImageView(image: UIImage(named: "placeholder"))
@@ -492,34 +934,52 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         placeholderImageView.contentMode = .scaleAspectFill
         self.view.addSubview(placeholderImageView)
         
-        // 動画の準備を開始
-        if let videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4") {
-            player = AVPlayer(url: videoURL)
-            playerViewController = AVPlayerViewController()
-            playerViewController.player = player
-            playerViewController.videoGravity = .resizeAspectFill
-            
-            // 動画を画面いっぱいに表示
-            playerViewController.view.frame = self.view.bounds
-            self.view.addSubview(playerViewController.view)
-            
-            // タッチをブロックする透明なビューを追加
-            let touchBlockerView = UIView(frame: self.view.bounds)
-            touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
-            self.view.addSubview(touchBlockerView)
-            
-            // 動画の準備が完了しているか確認
-            player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
-            
-            // 動画再生終了時に吸い込みモードを終了
-            if let currentItem = player.currentItem {
-                NotificationCenter.default.addObserver(self, selector: #selector(endSuctionMode), name: .AVPlayerItemDidPlayToEndTime, object: currentItem)
-            }
-        } else {
-            print("vacuum.mp4 の動画ファイルが見つかりませんでした。")
+        // ▽▽▽ 動画ファイル名をスコアから決定 ▽▽▽
+        let videoName: String
+        switch score {
+        case 10: videoName = "10"
+        case 25: videoName = "25"
+        case 77: videoName = "77"
+        default: videoName = "vacuum"
         }
         
-        // プレースホルダーの削除を行う
+        var videoURL = Bundle.main.url(forResource: videoName, withExtension: "mp4")
+        if videoURL == nil {
+            videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4")
+        }
+
+        guard let finalURL = videoURL else {
+            print("vacuum.mp4 も見つかりません。吸い込みをキャンセルします。")
+            isSuctionMode = false
+            currentSuctionScore = 0
+            // 既に 0 にした gameScores を元に戻す (もし qrCodeNumber があれば)
+            if let qrNum = self.qrCodeNumber { gameScores[qrNum] = score }
+            placeholderImageView.removeFromSuperview()
+            updateCartridgeLightImage(selectedCartridgeIndex)
+            statusImageView.isHidden = false
+            return
+        }
+            
+        // 4. URLが見つかった場合 (finalURL) のみ、プレイヤーを初期化
+        player = AVPlayer(url: finalURL)
+        playerViewController = AVPlayerViewController()
+        playerViewController.player = player
+        playerViewController.videoGravity = .resizeAspectFill
+        playerViewController.view.frame = self.view.bounds
+        self.view.addSubview(playerViewController.view)
+                
+        // タッチをブロックする透明なビューを追加
+        let touchBlockerView = UIView(frame: self.view.bounds)
+        touchBlockerView.backgroundColor = UIColor.clear
+        self.view.addSubview(touchBlockerView)
+                
+        // 動画の準備が完了しているか確認
+        player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
+                
+        // 動画再生終了時に吸い込みモードを終了
+        NotificationCenter.default.addObserver(self, selector: #selector(endSuctionMode), name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
+                
+        // プレースホルダーの削除
         DispatchQueue.main.async {
             placeholderImageView.removeFromSuperview()
         }
@@ -533,19 +993,72 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             if acceleration > self.shakeThreshold && (currentTime - self.lastShakeTime) > self.cooldownPeriod {
                 print("デバイスが揺れました！動画の再生速度を倍速します。")
                 self.increasePlaybackSpeed()
-                self.lastShakeTime = currentTime // 最後の揺れ時間を更新
+                self.lastShakeTime = currentTime
             }
         }
     }
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+    
+    // ▽▽▽ [FIX-4] ボス攻撃動画再生 (揺れ倍速なし) ▽▽▽
+    func startBossAttackVideo(score: Int) {
         
-        if keyPath == "outputVolume" {
-            handleRemoteButtonPress() // 音量ボタンをリモコンボタンと同様に扱う
+        isSuctionMode = true
+        // currentSuctionScore = score // ボス動画ではスコアを直接使わない
+        hideQRCodeImage()
+        statusImageView.isHidden = true
+        
+        let placeholderImageView = UIImageView(image: UIImage(named: "placeholder"))
+        placeholderImageView.frame = self.view.bounds
+        placeholderImageView.contentMode = .scaleAspectFill
+        self.view.addSubview(placeholderImageView)
+        
+        // ▽ ボス動画のファイル名を決定
+        let videoName = "Boss_\(score)"
+        
+        var videoURL = Bundle.main.url(forResource: videoName, withExtension: "mp4")
+        if videoURL == nil {
+            print("\(videoName).mp4 が見つかりません。フォールバック (vacuum.mp4) を試します。")
+            videoURL = Bundle.main.url(forResource: "vacuum", withExtension: "mp4")
+        }
+
+        guard let finalURL = videoURL else {
+            print("vacuum.mp4 も見つかりません。キャンセルします。")
+            isSuctionMode = false
+            placeholderImageView.removeFromSuperview()
+            updateCartridgeLightImage(selectedCartridgeIndex)
+            statusImageView.isHidden = false
+            return
+        }
+            
+        player = AVPlayer(url: finalURL)
+        playerViewController = AVPlayerViewController()
+        playerViewController.player = player
+        playerViewController.videoGravity = .resizeAspectFill
+        playerViewController.view.frame = self.view.bounds
+        self.view.addSubview(playerViewController.view)
+                
+        let touchBlockerView = UIView(frame: self.view.bounds)
+        touchBlockerView.backgroundColor = UIColor.clear
+        self.view.addSubview(touchBlockerView)
+                
+        player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
+        
+        // ▽▽▽ 終了ハンドラを 'endBossAttackMode' に変更 ▽▽▽
+        NotificationCenter.default.addObserver(self, selector: #selector(endBossAttackMode), name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
+                
+        DispatchQueue.main.async {
+            placeholderImageView.removeFromSuperview()
         }
         
+        // ▽▽▽ [FIX-4] motionManager を起動しない ▽▽▽
+        // motionManager.startAccelerometerUpdates(...)
+        // △△△ [FIX-4] △△△
+    }
+
+    // MARK: - KVO (音量部分を削除)
+    
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
         if keyPath == "status" {
         if let player = player, player.status == .readyToPlay {
-                // 動画の準備が完了したので再生
                 player.play()
             } else if let player = player, player.status == .failed {
                 print("動画の準備に失敗しました: \(player.error?.localizedDescription ?? "不明なエラー")")
@@ -565,117 +1078,132 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     }
     
     
-    
-    @objc func endSuctionMode(qrCodeNumber : Int) {
+    // ▽▽▽ [NEW FLOW] 吸い取り終了 (TCP送信形式の変更) ▽▽▽
+    @objc func endSuctionMode() {
+        // 同じ通知が複数回呼ばれるのを防ぐ
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
+        // KVOも解除
+        player?.currentItem?.removeObserver(self, forKeyPath: "status")
+
         isSuctionMode = false
-        
-        dummyImageView.isHidden = true
-        ghostImageView.isHidden = true
-        currentQRCodeImageView.isHidden = true
-        lightImageView.isHidden = false
-        showQRCodeImage(image: lightImageView.image!)
-        view.bringSubviewToFront(lightImageView)
-        
-        print("吸い込みモードが終了しました")
-        
-        // 残りの処理（例: おばけを退治したことを記録）
-        exterminatedCount += 1
-        /*
-        sendToUnity(sendnum: exterminatedCount)
-        */
-        let data = "\(exterminatedCount)".data(using: .utf8)!
-        TCPClient.shared.start(data: data)
-        
-        player.pause()
-        
-        
-        // 動画表示の削除
-        playerViewController.view.removeFromSuperview()
-        
-        // モーションデータの取得を停止
-        motionManager.stopAccelerometerUpdates()
-        
-        
-        // QRコード番号が設定されているか確認し、gameArrayを更新
-        if let qrCodeNumber = self.qrCodeNumber, qrCodeNumber >= 0 && qrCodeNumber < gameArray.count {
-            if gameArray[qrCodeNumber] == "ghost" {
-                gameArray[qrCodeNumber] = "dummy"
-                print("QRコード \(qrCodeNumber) は dummy に変換されました")
+
+        print("吸い込みモードが終了しました (スコア: \(currentSuctionScore))")
+        TCPClient.shared.send(message: "Score:\(currentSuctionScore)")
+                
+        // ▽▽▽ カートリッジにスコアを追加 ▽▽▽
+        if currentSuctionScore > 0 {
+            // ▽▽▽ 使用したのは「選択中」のカートリッジ ▽▽▽
+            if cartridge[selectedCartridgeIndex] == nil {
+                
+                // 1. カートリッジに記録
+                cartridge[selectedCartridgeIndex] = currentSuctionScore
+                // 削除: updateCartridgeUI()
+                // ▽▽▽ ライトも更新 ▽▽▽
+                updateCartridgeLightImage(selectedCartridgeIndex)
+
+                // 2. ▽▽▽ [Unity Logic] PCに吸い取り完了を通知 (Scan_Finished) ▽▽▽
+                TCPClient.shared.send(message: "Scan_Finished")
+                // △△△ [Unity Logic] △△△
+                
+                // 3. ▽▽▽ [Unity Logic] ゲーム開始ロジックを削除 ▽▽▽
+                // if !isGameStarted ... (削除)
+                // △△△ [Unity Logic] △△△
+                
             } else {
-                print("QRコード \(qrCodeNumber) は既に dummy です")
+                // (これは handleQRCodeDetected で防止されているはず)
+                print("カートリッジが満タンです！ 吸い取れませんでした。")
+                if let qrCodeNumber = self.qrCodeNumber {
+                    gameScores[qrCodeNumber] = currentSuctionScore
+                    print("QRコード \(qrCodeNumber) のスコアを \(currentSuctionScore) に戻しました。")
+                }
+                // ▽▽▽ [Unity Logic] 失敗コマンドは不要になったため削除 ▽▽▽
+                // TCPClient.shared.send(message: "CARTRIDGE_FULL")
+                // △△△ [Unity Logic] △△△
             }
         } else {
-            print("QRコード番号が無効です")
+            print("スコアが0のため、カートリッジには追加しませんでした。")
         }
-        checkForGameEnd()
-        detectedQRCodeType = nil
-    }
-   /*
-    func updateGameAfterSuction() {
-        // 吸い取りモード後の処理をここに実装
-        // たとえば、残り時間の延長や得点の加算など
-        // 例:
-        exterminatedCount += 1 // おばけを退治した数をカウント
-        if exterminatedCount >= maxExterminationCount {
-            endGame(isGameClear: true) // ゲーム終了処理
-        } else {
-            // 再度QRコードのスキャンを可能にする
-            
-            isQRCodeVisible = false
-            detectedQRCodeType = nil
-            initializeGameArray() // ゲーム配列を再初期化
-        }
-    }
-    */
-    func checkForGameEnd() {
-        if exterminatedCount >= 5 {
-            let data = "\(exterminatedCount)".data(using: .utf8)!
-            TCPClient.shared.start(data: data)
-            
-            endGame(isGameClear: true) // 退治数が5以上の場合はゲームクリア
-        } else if remainingTime <= 0 {
-            let data = "\(exterminatedCount)".data(using: .utf8)!
-            TCPClient.shared.start(data: data)
-            
-            endGame(isGameClear: false)// 時間切れの場合はゲームオーバー
-        }
-        let data = "\(exterminatedCount)".data(using: .utf8)!
-        TCPClient.shared.start(data: data)
+
+        // ▽ ライトを再表示
+        statusImageView.isHidden = false
         
+        exterminatedCount += 1
+        updateDebugLabels()
+                
+        player?.pause()
+        playerViewController?.view.removeFromSuperview()
+        playerViewController = nil
+                
+        motionManager.stopAccelerometerUpdates()
+                
+        self.qrCodeNumber = nil
+        self.currentSuctionScore = 0
     }
-    
 
     
+    // ▽▽▽ endGame を変更 (TCP送信, タイマー停止) ▽▽▽
+    /*
     func endGame(isGameClear: Bool) {
-        // ゲーム終了の処理
+        // ゲームが終了したらタイマーを止める
+        gameTimer?.invalidate()
+        gameTimer = nil
+                
+        // 他のタイマーも停止
+        suctionTimer?.invalidate()
+        suctionTimer = nil
+        qrCodeLostTimer?.invalidate()
+        qrCodeLostTimer = nil
+
+        // QRスキャンを停止
+        if captureSession.isRunning {
+             captureSession.stopRunning()
+        }
+        
+        // ▽ 既に終了処理が走っていたら何もしない
+        if isWaitingForFinish { return }
+                
+        isWaitingForFinish = true // ▽ "Connection_Finished" 待機状態に移行
+                
+        // TCPでゲーム終了を通知
+        let message = isGameClear ? "Game_Clear" : "Game_Over"
+        print("--- ▽▽▽ ゲーム終了: \(message) ▽▽▽ ---")
+        TCPClient.shared.send(message: message)
+        /*        
+        // リザルト画面へ
         let resultVC = ResultViewController()
         resultVC.modalPresentationStyle = .fullScreen
         resultVC.exterminatedCount = exterminatedCount
         resultVC.remainingTime = remainingTime
-        resultVC.isGameClear = isGameClear // ゲームクリアかどうかのフラグを渡す
+        resultVC.isGameClear = isGameClear
         present(resultVC, animated: true, completion: nil)
+        */
     }
-    
+    */
+    // ▽▽▽ 修正: startDummyMode ▽▽▽
     func startDummyMode() {
         isDummyMode = true
-        dummyImageView.isHidden = true
+        // dummyImageView.isHidden = true // 削除
         currentQRCodeImageView.isHidden = true
         hideQRCodeImage()
-        showQRCodeImage(image: lightImageView.image!)
-        view.bringSubviewToFront(lightImageView)
+        
+        // ▽▽▽ カートリッジライトを表示 ▽▽▽
+        updateCartridgeLightImage(selectedCartridgeIndex)
+        statusImageView.isHidden = false
 
         // vacuum_dummyの動画を準備
         if let videoURL = Bundle.main.url(forResource: "vacuum_dummy", withExtension: "mp4") {
             player = AVPlayer(url: videoURL)
             
-            let playerLayer = AVPlayerLayer(player: player)
-            playerLayer.frame = self.view.bounds
-            self.view.layer.addSublayer(playerLayer)
-            
+            // ▽▽▽ 修正: AVPlayerViewController を使用 ▽▽▽
+            playerViewController = AVPlayerViewController()
+            playerViewController!.player = player
+            playerViewController!.videoGravity = .resizeAspectFill
+            playerViewController!.view.frame = self.view.bounds
+            self.view.addSubview(playerViewController!.view)
             
             // タッチをブロックする透明なビューを追加
             let touchBlockerView = UIView(frame: self.view.bounds)
-            touchBlockerView.backgroundColor = UIColor.clear // 透明なビュー
+            touchBlockerView.backgroundColor = UIColor.clear
             self.view.addSubview(touchBlockerView)
             
             // 動画の準備が完了しているか確認
@@ -689,7 +1217,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             // 動画再生を開始
             player?.play()
         } else {
-            print("動画ファイルが見つかりません。")
+            print("動画ファイル (vacuum_dummy.mp4) が見つかりません。")
         }
         // 加速度センサーを停止
         motionManager.stopAccelerometerUpdates()
@@ -700,59 +1228,85 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         isDummyMode = false
         
         playerLayer?.removeFromSuperlayer()
+        
         // 動画ビューを削除する
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         player?.currentItem?.removeObserver(self, forKeyPath: "status")
-        
-        // プレイヤービューを削除
-        playerViewController?.view.removeFromSuperview() // ここでプレイヤービューを削除
-        playerViewController = nil // メモリを解放
+        playerViewController?.view.removeFromSuperview()
+        playerViewController = nil
         
         view.isUserInteractionEnabled = true
         detectedQRCodeType = nil
         currentQRCodeImageView.isHidden = true
-        ghostImageView.isHidden = true
-        dummyImageView.isHidden = true
-        lightImageView.isHidden = false
-        view.bringSubviewToFront(lightImageView)
+        
+        // ▽▽▽ カートリッジライトを表示 ▽▽▽
+        updateCartridgeLightImage(selectedCartridgeIndex)
+        statusImageView.isHidden = false
         print("ダミーモードが終了しました")
     }
     
     // QRコードの読み取りを一時停止する
     func stopQRCodeScanning() {
+        if captureSession.isRunning {
         captureSession.stopRunning()
+        }
     }
     
     // QRコードの読み取りを再開する
     func startQRCodeScanning() {
-        captureSession.startRunning()
-    }
-    
-    func transitionToResultViewController() {
-        let storyboard = UIStoryboard(name: "Main", bundle: nil)
-        if let resultViewController = storyboard.instantiateViewController(withIdentifier: "ResultViewController") as? ResultViewController {
-            resultViewController.exterminatedCount = exterminatedCount  // 退治数を渡す
-            resultViewController.remainingTime = remainingTime           // 残り時間を渡す
-            self.present(resultViewController, animated: true, completion: nil)
+        if !captureSession.isRunning && isConnectionEstablished {
+             DispatchQueue.global(qos: .userInitiated).async {
+                self.captureSession.startRunning()
+            }
         }
     }
     
-    
+    // ▽▽▽ [NEW FLOW] この関数はおそらく不要 ▽▽▽
     func startVideoPlayback(for videoName: String) {
-        guard let videoURL = Bundle.main.url(forResource: videoName, withExtension: "mp4") else {
-            print("動画ファイルが見つかりません。")
-            return
+        // ... (startSuctionMode が使われるため、これは呼ばれない想定)
+    }
+
+    // ▽▽▽ [FIX-4] ボス攻撃動画 完了 ▽▽▽
+    @objc func endBossAttackMode() {
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
+        player?.currentItem?.removeObserver(self, forKeyPath: "status")
+
+        isSuctionMode = false
+        isBossScan = false
+        print("ボス攻撃動画が終了しました")
+                
+        // ▽ TCP送信、カートリッジクリアは動画再生後に行う
+        if let score = cartridge[selectedCartridgeIndex] {
+            
+            // 1. PCに攻撃成功を通知
+            print("TCP: Attack:\(score) を送信します")
+            TCPClient.shared.send(message: "zAttack:\(score)")
+            
+            // 2. カートリッジを空にする
+            cartridge[selectedCartridgeIndex] = nil
+                
+        } else {
+            // (このルートは handleBossAttack で防止されているはず)
+            print("エラー: ボス攻撃完了時、カートリッジが空でした。")
         }
         
-        player = AVPlayer(url: videoURL)
+        // ▽ ライトを Scan_Null に更新
+        updateCartridgeLightImage(selectedCartridgeIndex)
+        statusImageView.isHidden = false
         
-        // AVPlayerLayerを設定
-        let playerLayer = AVPlayerLayer(player: player)
-        playerLayer.frame = self.view.bounds
-        self.view.layer.addSublayer(playerLayer)
+        // (デバッグカウントはボス攻撃では増やさない)
+        // updateDebugLabels() 
+                
+        player?.pause()
+        playerViewController?.view.removeFromSuperview()
+        playerViewController = nil
+                
+        // (motionManager は起動していないので停止不要)
         
-        // 動画再生を開始
-        player.play()
+        self.qrCodeNumber = nil
+        self.currentSuctionScore = 0 // (使用していないが一応リセット)
     }
+
+    // ... (startDummyMode, endDummyMode, stopQRCodeScanning, startQRCodeScanning は変更なし) ...
 }

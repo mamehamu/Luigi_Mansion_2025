@@ -45,10 +45,10 @@ class StartViewController: UIViewController {
     }
     
     @objc func startGame() {
-        // チュートリアルモードへ移行
-        let tutorialVC = TutorialViewController()
-        tutorialVC.isDebugMode = isDebugMode
-        tutorialVC.modalPresentationStyle = .fullScreen
-        present(tutorialVC, animated: true, completion: nil)
+        // ゲームモードへ移行(お化けが退治するまでタイマー始まらない)
+        let gameVC = GameViewController()
+        gameVC.isDebugMode = isDebugMode
+        gameVC.modalPresentationStyle = .fullScreen
+        present(gameVC, animated: true, completion: nil)
     }
 }
