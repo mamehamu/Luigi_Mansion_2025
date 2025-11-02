@@ -35,6 +35,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     let motionManager = CMMotionManager()
     var qrCodeNumber: Int?
     var currentSuctionScore: Int = 0
+    var currentCartridgeIndexBeingUsed: Int = 0 // ▽▽▽ [FIX] 攻撃中のスロットを記憶する変数 ▽▽▽
     
     var player: AVPlayer!
     var playerLayer: AVPlayerLayer?
@@ -81,18 +82,14 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
     // カートリッジ (大きさ4、nilは空)
     var cartridge: [Int?] = [nil, nil, nil, nil]
-    var selectedCartridgeIndex: Int = 0 // TCPで操作される現在選択中のカートリッジ (0-3)
+    var selectedCartridgeIndex: Int = 0
     
-    // ボス関連
-    let bossQRCodeString = "BOSS" // ボスQRの文字列 (適宜変更してください)
-    //var bossHP: Int = 100
-        
-    // ボスHP表示用UI
-    //var bossHPLabel: UILabel!
-    //var bossHPBackgroundView: UIView! // HPバーの背景
-    //var bossHPBarView: UIView!      // HPバー本体
+    let bossQRCodeString = "BOSS"
+    
+    // ▽▽▽ [FIX-3] ボス攻撃キュー ▽▽▽
+    var bossAttackQueue: [(index: Int, score: Int)] = []
 
-    // ▽▽▽ [NEW FLOW] viewDidLoad (接続待機処理を追加) ▽▽▽
+    // ▽▽▽ viewDidLoad (変更なし) ▽▽▽
     override func viewDidLoad() {
         super.viewDidLoad()
         initializeGameArray()
@@ -154,25 +151,47 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
         // 0番目は -1 (インデックス調整用)
         gameScores.append(-1)
+        gameScores.append(10) // 1番目は必ず10点
 
-        // 1〜7番目 (10: 80%, 25: 19.5%, 77: 0.5%)
-        for _ in 1...7 {
+        // 2〜4番目 (10: 90%, 25: 19.5%, 77: 0.5%)
+        for _ in 2...4 {
             let r = Double.random(in: 0..<1)
-            if r < 0.80 {           // 80%
+            if r < 0.90 {           // 90%
                 gameScores.append(10)
-            } else if r < 0.80 + 0.19 { // 19% (0.80 <= r < 0.99)
+            } else if r < 0.90 + 0.09 { // 19% (0.90 <= r < 0.99)
                 gameScores.append(25)
             } else {                  // 1% (r >= 0.99)
                 gameScores.append(77)
             }
         }
 
-        // 8〜10番目 (25: 98%, 77: 2%)
-        for _ in 8...10 {
+        for _ in 5...7 {
             let r = Double.random(in: 0..<1)
-            if r < 0.98 {           // 98%
+            if r < 0.70 {           // 80%
+                gameScores.append(10)
+            } else if r < 0.70 + 0.28 { // 18% (0.80 <= r < 0.99)
                 gameScores.append(25)
-            } else {                  // 2% (r >= 0.98)
+            } else {                  // 2% (r >= 0.99)
+                gameScores.append(77)
+            }
+        }
+        
+        
+        // 8〜10番目 (25: 98%, 77: 2%)
+        for _ in 8...9 {
+            let r = Double.random(in: 0..<1)
+            if r < 0.96 {           // 96%
+                gameScores.append(25)
+            } else {                  // 4% (r >= 0.96)
+                gameScores.append(77)
+            }
+        }
+        
+        for _ in 10...10 {
+            let r = Double.random(in: 0..<1)
+            if r < 0.90 {           // 96%
+                gameScores.append(25)
+            } else {                  // 10% (r >= 0.96)
                 gameScores.append(77)
             }
         }
@@ -210,7 +229,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             
             // ▽▽▽ [NEW FLOW] ライトをリセット ▽▽▽
             self.updateCartridgeLightImage(self.selectedCartridgeIndex)
-            self.statusImageView.isHidden = false // ▽ [FIX-1] 表示状態に戻す
+            self.statusImageView.isHidden = false
         }
     }
     
@@ -362,12 +381,34 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         // ▽▽▽ [NEW FLOW] ゲーム終了待機中は "Connection_Finished" のみ受け付ける ▽▽▽
         if isWaitingForFinish {
             if command == "Connection_Finished" {
-                print("--- ▽▽▽ Connection_Finished 受信。リセットします ▽▽▽ ---")
+                print("--- ▽▽▽ Connection_Finished 受信。ゲームをリセットします ▽▽▽ ---")
                 isWaitingForFinish = false
-                resetGame() // 状態をリセット
+
+                //resetGame()
+                //handleConnectionEstablished() // ▽ 再接続処理を実行
                 
-                // ▽ 接続確立済みの状態に戻し、スキャンを再開
-                handleConnectionEstablished()
+                
+                // 1. 
+                resetGame()
+                
+                // 2. 
+                //    
+                // 
+                DispatchQueue.main.async {
+                    // 
+                    // 
+                    self.statusImageView.image = self.scanNullImage
+                    self.statusImageView.isHidden = false
+                    
+                    // 3. 
+                    if !self.captureSession.isRunning {
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            self.captureSession.startRunning()
+                        }
+                    }
+                }
+                // 
+                // 
             }
             return
         }
@@ -379,16 +420,11 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         var newIndex: Int? = nil
         
         switch command {
-        case "Selected_A":
-            newIndex = 0
-        case "Selected_B":
-            newIndex = 1
-        case "Selected_Y":
-            newIndex = 2
-        case "Selected_X":
-            newIndex = 3
-        default:
-            break
+        case "Selected_A": newIndex = 0
+        case "Selected_B": newIndex = 1
+        case "Selected_Y": newIndex = 2
+        case "Selected_X": newIndex = 3
+        default: break
         }
         
         if let newIndex = newIndex {
@@ -401,7 +437,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 suctionTimer = nil
                 canStartSuction = false
                 hideQRCodeImage()
-                isBossScan = false // ▽ 割り込み時はボススキャンも解除
+                isBossScan = false
+                stopShakeDetection() // ▽ 揺れ検知も停止
             }
             
             selectedCartridgeIndex = newIndex
@@ -452,6 +489,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             suctionTimer = nil
             qrCodeLostTimer?.invalidate()
             qrCodeLostTimer = nil
+            stopShakeDetection() // ▽ 揺れ検知も停止
 
             // QRスキャンを停止
             if captureSession.isRunning {
@@ -467,22 +505,15 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             }
         }
     
-    // ▽▽▽ [NEW FLOW] おばけ吸い取り実行 ▽▽▽
+    // ▽ おばけ吸い取り実行
     func handleGhostSuction() {
         if let qrNum = self.qrCodeNumber, qrNum >= 1 && qrNum < gameScores.count {
             let score = gameScores[qrNum]
                 
                 if score > 0 {
                 print("TCP: おばけ吸い込みモードに移行します (score: \(score))")
-                    
-                // 1. PCに吸い取り開始を通知
-                // ▽▽▽ [Unity Logic] 送信コマンドの変更 ▽▽▽
-                // TCPClient.shared.send(message: "Scan_Beginning") // 削除 (不要になった)
-                // △△△ [Unity Logic] △△△
-                
-                // 2. 吸い取り開始
-                    startSuctionMode(score: score)
-                gameScores[qrNum] = 0 // 吸い取り開始時点で0に
+                startSuctionMode(score: score) // ▽ 揺れ倍速あり
+                gameScores[qrNum] = 0
                 } else {
                     print("TCP: 既に吸い取られたQRです。")
                 // ライトを戻す
@@ -494,38 +525,115 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     
     // ▽▽▽ [NEW FLOW] ボス攻撃実行 ▽▽▽
     func handleBossAttack() {
-        if let score = cartridge[selectedCartridgeIndex] {
-            // --- カートリッジに中身あり ---
-            print("TCP: ボス攻撃動画を開始します (score: \(score))")
-            
-            // ▽▽▽ [FIX-4] 動画再生を開始する ▽▽▽
-            startBossAttackVideo(score: score)
-            // △△△ [FIX-4] △△△
-            /*
-            // 2. ボスHPを減らす
-            bossHP -= score
-            updateBossHPUI(animate: true)
-                
-            // 3. カートリッジを空にする
-            cartridge[selectedCartridgeIndex] = nil
-            
-            // ▽▽▽ [Unity Logic] ゲーム開始ロジックを削除 ▽▽▽
-            // if !isGameStarted ... (削除)
-            // △△△ [Unity Logic] △△△
-            */
-        } else {
-            // --- カートリッジが空 ---
+        // 1. カートリッジから攻撃キューを作成 (インデックスとスコア)
+        //    (例: [(1, 10), (3, 77)])
+        let attackQueue = cartridge.enumerated().compactMap { (index, score) -> (index: Int, score: Int)? in
+            guard let score = score else { return nil }
+            return (index: index, score: score)
+        }.reversed() // 配列の若番（Y, X）から処理
+        
+        self.bossAttackQueue = Array(attackQueue)
+        
+        if self.bossAttackQueue.isEmpty {
             print("TCP: カートリッジが空です。攻撃できません。")
-            // ▽▽▽ [Unity Logic] 失敗コマンドは不要になったため削除 ▽▽▽
-            // TCPClient.shared.send(message: "ATTACK_FAIL_EMPTY")
-            // △△△ [Unity Logic] △△△
+        hideQRCodeImage()
+        updateCartridgeLightImage(selectedCartridgeIndex)
+        statusImageView.isHidden = false
+        return
+        }
+
+        print("--- ▽▽▽ ボス連続攻撃開始 ▽▽▽ ---")
+        isSuctionMode = true // 連続攻撃が完了するまで他の操作をブロック
+    hideQRCodeImage()
+    statusImageView.isHidden = true
+
+    processNextBossAttack()
+    }
+    
+    //新規追加[3]
+    func processNextBossAttack() {
+        // 1. キューが空なら、攻撃シーケンスを終了
+        guard !bossAttackQueue.isEmpty else {
+            endBossAttackSequence()
+            return
         }
         
-        // ▽ 攻撃後、ボスUIを隠し、ライト表示に戻る
-        hideQRCodeImage()
-        updateCartridgeLightImage(selectedCartridgeIndex) // 空になったのでNullが表示されるはず
+        // 2. キューから次の攻撃を取り出す (例: (index: 3, score: 77))
+        let attack = bossAttackQueue.removeFirst()
+        
+        print("ボス攻撃: \(attack.index) の \(attack.score) で攻撃")
+        
+        // 3. 
+        currentSuctionScore = attack.score
+        currentCartridgeIndexBeingUsed = attack.index
+        // △△△ [FIX] △△△
+        
+        // 4. 
+        startBossAttackVideo(score: attack.score)
+    }
+
+    //新規追加[3]
+    func endBossAttackSequence() {
+        print("--- △△△ ボス連続攻撃 終了 △△△ ---")
+        isSuctionMode = false
+        isBossScan = false
+        
+        // 
+        selectedCartridgeIndex = 0
+        updateCartridgeLightImage(selectedCartridgeIndex)
         statusImageView.isHidden = false
     }
+
+    
+    // MARK: - シェイク検知
+
+    // ▽▽▽ [FIX-2] シェイク検知開始 (新規) ▽▽▽
+    func startShakeDetection() {
+        guard motionManager.isAccelerometerAvailable else {
+            print("加速度センサーが利用できません。")
+            return
+        }
+
+        print("--- ▽ 揺れ検知を開始 (3秒間) ▽ ---")
+
+        motionManager.accelerometerUpdateInterval = 0.1
+        motionManager.startAccelerometerUpdates(to: OperationQueue.current!) { [weak self] (data, error) in
+            guard let self = self, let data = data, error == nil else { return }
+
+            let acceleration = sqrt(pow(data.acceleration.x, 2) + pow(data.acceleration.y, 2) + pow(data.acceleration.z, 2))
+
+            let currentTime = Date().timeIntervalSince1970
+
+            //
+            if acceleration > self.shakeThreshold && (currentTime - self.lastShakeTime) > self.cooldownPeriod {
+
+                //
+                guard self.canStartSuction else { return }
+
+                print("--- シェイク検知！シャッター作動 ---")
+
+                //
+                self.canStartSuction = false
+                self.stopShakeDetection()
+                self.suctionTimer?.invalidate()
+                self.lastShakeTime = currentTime
+
+                //
+                if self.isBossScan {
+                    self.handleBossAttack()
+                } else if self.qrCodeNumber != nil {
+                    self.handleGhostSuction()
+                }
+            }
+        }
+    }
+
+    // ▽▽▽ [FIX-2] シェイク検知停止 (新規) ▽▽▽
+    func stopShakeDetection() {
+        print("--- △ 揺れ検知を停止 △ ---")
+        motionManager.stopAccelerometerUpdates()
+    }
+
     
     
     func setupDebugLabels() {
@@ -730,7 +838,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             // ▽ ただし、前回がボススキャンだったら、リセットして通常処理
             if isBossScan {
                 suctionTimer?.invalidate()
-                // (fall through to normal processing)
+                stopShakeDetection() // 
             } else {
                 // ▽ 前回もおばけスキャンならタイマーリセットのみ
                 suctionTimer?.invalidate()
@@ -739,6 +847,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 self?.canStartSuction = false
                 self?.suctionTimer = nil
                 self?.hideQRCodeImage()
+                self?.stopShakeDetection() // 
                 self?.updateCartridgeLightImage(self?.selectedCartridgeIndex ?? 0)
                 self?.statusImageView.isHidden = false
             }
@@ -778,12 +887,16 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 else { print("Error: normal.png または rea.png が見つかりません。") }
                     
                 // 3秒間の "Release_Shutter" 受付開始
-                    canStartSuction = true
+                canStartSuction = true
+                startShakeDetection()
+                // △△△ [FIX-2] △△△
+                
                     suctionTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
                         print("3-second suction window closed.")
                         self?.canStartSuction = false
                         self?.suctionTimer = nil
                     self?.hideQRCodeImage()
+                    self?.stopShakeDetection() // 
                     self?.updateCartridgeLightImage(self?.selectedCartridgeIndex ?? 0)
                     self?.statusImageView.isHidden = false
                     }
@@ -817,7 +930,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             // ▽ 前回がおばけスキャンだったら、リセットして通常処理
             if !isBossScan {
                 suctionTimer?.invalidate()
-                // (fall through to normal processing)
+                stopShakeDetection() // 
             } else {
                 // ▽ 前回もボススキャンならタイマーリセットのみ
                 suctionTimer?.invalidate()
@@ -827,7 +940,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 self.canStartSuction = false
                 self.suctionTimer = nil
                 self.hideQRCodeImage()
-                    self.isBossScan = false // ▽
+                    self.isBossScan = false
+                    self.stopShakeDetection() // 
                 self.updateCartridgeLightImage(self.selectedCartridgeIndex)
                 self.statusImageView.isHidden = false
             }
@@ -850,9 +964,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         qrCodeLostTimer?.invalidate()
         qrCodeLostTimer = nil
             
-        // ▽▽▽ カートリッジを使った攻撃準備 ▽▽▽
-        if cartridge[selectedCartridgeIndex] != nil {
-            // --- カートリッジに中身あり (攻撃準備) ---
+        if cartridge.contains(where: { $0 != nil }) { // 
+            // --- [FIX-3] カートリッジに中身あり (Boss.png 表示) ---
             print("ボスQR検出。攻撃準備 (3秒)")
                 
             if let image = bossGhostImage {
@@ -862,13 +975,17 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             }
                 
             canStartSuction = true
+            startShakeDetection()
+            // △△△ [FIX-2] △△△
+            
             suctionTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
                 print("3-second suction window closed.")
                 self.canStartSuction = false
                 self.suctionTimer = nil
                 self.hideQRCodeImage()
-                self.isBossScan = false // ▽
+                self.isBossScan = false
+                self.stopShakeDetection() // 
                 self.updateCartridgeLightImage(self.selectedCartridgeIndex)
                 self.statusImageView.isHidden = false
             }
@@ -877,7 +994,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             // --- カートリッジが空 (攻撃不可) ---
             print("ボスQR検出。カートリッジが空。")
             if let image = cannotGhostImage {
-                showQRCodeImage(image: image) // cannot表示
+                showQRCodeImage(image: image)
             } else {
                 print("Error: cannot.png が見つかりません。")
             }
@@ -1001,8 +1118,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
     // ▽▽▽ [FIX-4] ボス攻撃動画再生 (揺れ倍速なし) ▽▽▽
     func startBossAttackVideo(score: Int) {
         
-        isSuctionMode = true
-        // currentSuctionScore = score // ボス動画ではスコアを直接使わない
+        // isSuctionMode = true // 
+        
         hideQRCodeImage()
         statusImageView.isHidden = true
         
@@ -1022,10 +1139,10 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
 
         guard let finalURL = videoURL else {
             print("vacuum.mp4 も見つかりません。キャンセルします。")
-            isSuctionMode = false
+            // isSuctionMode = false // 
             placeholderImageView.removeFromSuperview()
-            updateCartridgeLightImage(selectedCartridgeIndex)
-            statusImageView.isHidden = false
+            // 
+            processNextBossAttack()
             return
         }
             
@@ -1042,8 +1159,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 
         player?.currentItem?.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: nil)
         
-        // ▽▽▽ 終了ハンドラを 'endBossAttackMode' に変更 ▽▽▽
-        NotificationCenter.default.addObserver(self, selector: #selector(endBossAttackMode), name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
+        // ▽▽▽ [FIX-3] 終了ハンドラを 'handleBossVideoSegmentFinished' に変更 ▽▽▽
+        NotificationCenter.default.addObserver(self, selector: #selector(handleBossVideoSegmentFinished), name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
                 
         DispatchQueue.main.async {
             placeholderImageView.removeFromSuperview()
@@ -1088,7 +1205,6 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         isSuctionMode = false
 
         print("吸い込みモードが終了しました (スコア: \(currentSuctionScore))")
-        TCPClient.shared.send(message: "Score:\(currentSuctionScore)")
                 
         // ▽▽▽ カートリッジにスコアを追加 ▽▽▽
         if currentSuctionScore > 0 {
@@ -1097,17 +1213,16 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
                 
                 // 1. カートリッジに記録
                 cartridge[selectedCartridgeIndex] = currentSuctionScore
-                // 削除: updateCartridgeUI()
-                // ▽▽▽ ライトも更新 ▽▽▽
-                updateCartridgeLightImage(selectedCartridgeIndex)
+                // ▽ ライトはまだ更新しない (advanceToNextEmptyCartridge で行う)
 
                 // 2. ▽▽▽ [Unity Logic] PCに吸い取り完了を通知 (Scan_Finished) ▽▽▽
                 TCPClient.shared.send(message: "Scan_Finished")
+                TCPClient.shared.send(message: "Score:\(currentSuctionScore)")
                 // △△△ [Unity Logic] △△△
                 
-                // 3. ▽▽▽ [Unity Logic] ゲーム開始ロジックを削除 ▽▽▽
-                // if !isGameStarted ... (削除)
-                // △△△ [Unity Logic] △△△
+                // ▽▽▽ [FIX-1] 次の空カートリッジに移動 ▽▽▽
+                advanceToNextEmptyCartridge()
+                // △△△ [FIX-1] △△△
                 
             } else {
                 // (これは handleQRCodeDetected で防止されているはず)
@@ -1124,7 +1239,8 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             print("スコアが0のため、カートリッジには追加しませんでした。")
         }
 
-        // ▽ ライトを再表示
+        // ▽ ライトを (更新された) selectedCartridgeIndex で表示
+        updateCartridgeLightImage(selectedCartridgeIndex)
         statusImageView.isHidden = false
         
         exterminatedCount += 1
@@ -1281,7 +1397,7 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
             
             // 1. PCに攻撃成功を通知
             print("TCP: Attack:\(score) を送信します")
-            TCPClient.shared.send(message: "zAttack:\(score)")
+            TCPClient.shared.send(message: "Attack:\(score)")
             
             // 2. カートリッジを空にする
             cartridge[selectedCartridgeIndex] = nil
@@ -1306,6 +1422,66 @@ class GameViewController: UIViewController, AVCaptureMetadataOutputObjectsDelega
         
         self.qrCodeNumber = nil
         self.currentSuctionScore = 0 // (使用していないが一応リセット)
+    }
+
+    // ▽▽▽ [FIX-1] カートリッジ自動選択 (新規) ▽▽▽
+    func advanceToNextEmptyCartridge() {
+        // 
+        if !cartridge.contains(where: { $0 == nil }) {
+            print("全カートリッジが満タンです。インデックスを変更しません。")
+            return
+        }
+        
+        // 
+        var nextIndex = selectedCartridgeIndex
+        for _ in 0..<4 {
+            nextIndex = (nextIndex + 1) % 4 // 
+            if cartridge[nextIndex] == nil {
+                selectedCartridgeIndex = nextIndex
+                print("次の空カートリッジ \(selectedCartridgeIndex) に移動しました。")
+                return
+            }
+        }
+    }
+    
+    // ▽▽▽ [FIX] ボス攻撃動画 *セグメント* 完了 (正しいスロットを空にする) ▽▽▽
+    @objc func handleBossVideoSegmentFinished() {
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: player.currentItem)
+        player?.currentItem?.removeObserver(self, forKeyPath: "status")
+
+        // isSuctionMode = false // 
+        // isBossScan = false // 
+        print("ボス攻撃セグメント終了 (スコア: \(currentSuctionScore))")
+                
+        // ▽▽▽ [FIX] 
+        // 
+        // 
+        if currentSuctionScore > 0 {
+            
+            // 1. 
+            print("TCP: Attack:\(currentSuctionScore) を送信します")
+            TCPClient.shared.send(message: "Attack:\(currentSuctionScore)")
+            
+            // 2. 
+            print("カートリッジ \(currentCartridgeIndexBeingUsed) を空にします。")
+            cartridge[currentCartridgeIndexBeingUsed] = nil
+            
+            currentSuctionScore = 0 // 
+                
+        } else {
+            print("エラー: ボス攻撃完了時、スコアが0でした。")
+        }
+        
+        // ▽ ライトはまだ更新しない (シーケンス完了時)
+        // updateCartridgeLightImage(selectedCartridgeIndex)
+        // statusImageView.isHidden = false
+                
+        player?.pause()
+        playerViewController?.view.removeFromSuperview()
+        playerViewController = nil
+                
+        // 3. 
+        processNextBossAttack()
     }
 
     // ... (startDummyMode, endDummyMode, stopQRCodeScanning, startQRCodeScanning は変更なし) ...
